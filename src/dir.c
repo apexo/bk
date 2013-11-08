@@ -245,7 +245,7 @@ int dir_write(block_stack_t *bs, size_t depth, index_t *index, int fd, unsigned 
 	return ref_len;
 }
 
-int _dir_read_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, unsigned char *ref, int ref_len);
+int _dir_read_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, const unsigned char *ref, int ref_len);
 
 int _dir_dentry_process(block_stack_t *bs, size_t depth, block_t *block, index_t *index,
 	const dentry_t *dentry,
@@ -273,7 +273,7 @@ int _dir_dentry_process(block_stack_t *bs, size_t depth, block_t *block, index_t
 	return 0;
 }
 
-int _dir_read_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, unsigned char *ref, int ref_len) {
+int _dir_read_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, const unsigned char *ref, int ref_len) {
 	if (block_setup(block, ref, ref_len)) {
 		fprintf(stderr, "block_setup failed\n");
 		return -1;
