@@ -114,7 +114,7 @@ int _index_fib_grow(index_t *index, size_t limit) {
 	const size_t nf = index->num_fibidx;
 	index_range_t *fibidx = (index_range_t*)realloc(index->fibidx, (nf + 1) * sizeof(index_range_t));
 	if (!fibidx) {
-		perror("out of memory growing index");
+		perror("out of memory");
 		return -1;
 	}
 	index->fibidx = fibidx;
@@ -129,7 +129,7 @@ int _index_fib_grow(index_t *index, size_t limit) {
 	fibidx[nf].limit = limit;
 	fibidx[nf].pages = (index_page_t*)malloc(num_pages * PAGE_SIZE);
 	if (!fibidx[nf].pages) {
-		perror("out of memory growing index");
+		perror("out of memory");
 		return -1;
 	}
 	memset(fibidx[nf].pages, 0, num_pages * PAGE_SIZE);
@@ -360,11 +360,9 @@ int index_write(index_t *index, int fd, size_t block_size) {
 						nf = index->num_fibidx;
 					}
 
-					printf("%d (%d), %d (%d) -> %d (%d)\n", i1, fibidx[i1].num_entries, i2, fibidx[i2].num_entries, i2+1, fibidx[i2+1].num_entries);
 					assert(!fibidx[i2+1].num_entries);
 					assert(fibidx[i2+1].limit >= fibidx[i1].num_entries + fibidx[i2].num_entries);
 
-					printf("merging %d and %d -> %d\n", i1, i2, i2+1);
 					_index_range_merge(fibidx+(i2+1), fibidx+i2, fibidx+i1);
 					the_real_index = i2 + 1;
 					break;
@@ -388,6 +386,7 @@ int index_write(index_t *index, int fd, size_t block_size) {
 int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size) {
 	index_page_t *page;
 	size_t pagenum, pageidx;
+
 	for (size_t i = 0; i < index->num_references; i++) {
 		if (!_index_range_lookup(index->references + i, key, &pagenum, &pageidx)) {
 			*data_fd = index->ref_data_fd[i];

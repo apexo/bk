@@ -75,7 +75,6 @@ int _dir_write_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *ind
 
 int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int dirfd, char *name) {
 	if (*name && *name == '.' && (!*(name+1) || (*(name+1) == '.' && !*(name+2)))) {
-		fprintf(stderr, "skipping directory: %s\n", name);
 		return 0;
 	}
 

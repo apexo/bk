@@ -182,7 +182,6 @@ int _block_data_write(index_t *index, const unsigned char *data, block_key_t sto
 int _block_dedup(block_t *block, index_t *index, const unsigned char *block_data, size_t block_size, block_key_t encryption_key) {
 	file_offset_t file_offset;
 	block_size_t temp_block_size, compressed_block_size;
-
 	block_key_t storage_key;
 	int data_fd;
 
@@ -191,7 +190,6 @@ int _block_dedup(block_t *block, index_t *index, const unsigned char *block_data
 
 	if (index_lookup(index, storage_key, &data_fd, &file_offset, &temp_block_size, &compressed_block_size)) {
 		const unsigned char* compressed_data = _block_compress(block_data, block_size, block->temp1, &compressed_block_size);
-		// fprintf(stderr, "new block, awesome! %zd -> %zd\n", block_size, compressed_block_size);
 		if (_block_crypt(compressed_data, compressed_block_size, block->temp2, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
 			return -1;
