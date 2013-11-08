@@ -18,6 +18,7 @@ int _index_fib_grow(index_t *index, size_t limit);
 
 int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
 	memset(index, 0, sizeof(index_t));
+	index->next_ino = 2; // in FUSE, 0 is invalid and 1 is reserved for the root
 	if (_index_fib_grow(index, 1)) {
 		return -1;
 	}
@@ -411,4 +412,8 @@ int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *f
 	*block_size = be32toh(page->block_size[pageidx]);
 	*compressed_block_size = be32toh(page->compressed_block_size[pageidx]);
 	return 0;
+}
+
+void index_alloc_ino(index_t *index, uint64_t *ino) {
+	*ino = index->next_ino++;
 }

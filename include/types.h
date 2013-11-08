@@ -52,6 +52,7 @@ typedef struct index_range {
 } index_range_t;
 
 typedef struct dentry {
+	uint64_t ino;     /* inode number (synthetic) */
 	uint32_t mode;    /* protection */
 	uint32_t uid;     /* user ID of owner */
 	uint32_t gid;     /* group ID of owner */
@@ -75,6 +76,7 @@ typedef struct index {
 	index_range_t *fibidx;
 	SHA256_CTX encryption_key_context;
 	SHA256_CTX storage_key_context;
+	uint64_t next_ino;
 } index_t;
 
 typedef struct block {

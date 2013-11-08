@@ -14,8 +14,7 @@
 
 #include "block_stack.h"
 #include "block.h"
-
-// int fstatat(int dirfd, const char *pathname, struct stat *buf, int flags);
+#include "index.h"
 
 int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int dirfd, char *name);
 
@@ -177,6 +176,7 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	dentry_t d;
 	memset(&d, 0, sizeof(d));
 
+	index_alloc_ino(index, &d.ino);
 	d.mode = htobe32(buf.st_mode);
 	d.uid = htobe32(buf.st_uid);
 	d.gid = htobe32(buf.st_gid);
