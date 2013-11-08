@@ -245,28 +245,31 @@ int dir_write(block_stack_t *bs, size_t depth, index_t *index, int fd, unsigned 
 	return ref_len;
 }
 
+int _dir_read_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, unsigned char *ref, int ref_len);
+
 int _dir_dentry_process(block_stack_t *bs, size_t depth, block_t *block, index_t *index,
 	const dentry_t *dentry,
 	const unsigned char *ref, int ref_len,
 	const unsigned char *name, int name_len,
 	const unsigned char *username, int username_len,
 	const unsigned char *groupname, int groupname_len) {
-	//fprintf(stdout, "name_len = %d, username_len = %d, groupname_len = %d\n", name_len, username_len, groupname_len);
-	fprintf(stdout, "%*.s%.*s", (depth-1)*2, "", name_len, name);
 	uint32_t mode = be32toh(dentry->mode);
 
-
 	if (S_ISDIR(mode)) {
+		fprintf(stdout, "%*.s%.*s", (int)(depth-1)*2, "", (int)name_len, name);
 		fprintf(stdout, "/\n");
+		if (_dir_read_dir(bs, depth, block, index, ref, ref_len)) {
+			fprintf(stderr, "_dir_read_dir failed\n");
+			fprintf(stderr, "%d\n", ref_len);
+			return -1;
+		}
 		return 0;
 	}
 
 	if (S_ISREG(mode)) {
-		fprintf(stdout, ": %zd / %zd\n", be64toh(dentry->size), be64toh(dentry->blocks) * 512);
 		return 0;
 	}
 
-	fprintf(stdout, "*\n");
 	return 0;
 }
 
