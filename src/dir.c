@@ -168,7 +168,9 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 		return -1;
 	}
 
-	fprintf(stderr, "%s: %zd / %zd\n", name, block_next->raw_bytes, block_next->allocated_bytes);
+	if (S_ISDIR(buf.st_mode)) {
+		fprintf(stderr, "%.*s%s/: %zd / %zd\n", (depth-1)*2, "", name, block_next->raw_bytes, block_next->allocated_bytes);
+	}
 
 	assert(ref_len >= 2);
 
