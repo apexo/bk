@@ -53,16 +53,16 @@ typedef struct index_range {
 
 typedef struct dentry {
 	uint64_t ino;     /* inode number (synthetic) */
-	uint32_t mode;    /* protection */
-	uint32_t uid;     /* user ID of owner */
-	uint32_t gid;     /* group ID of owner */
 	uint64_t rdev;    /* device ID (if special file) */
 	uint64_t size;    /* total size, in bytes */
-	uint32_t blksize; /* blocksize for filesystem I/O */
 	uint64_t blocks;  /* number of 512B blocks allocated */
 	uint64_t atime;   /* time of last access */
 	uint64_t mtime;   /* time of last modification */
 	uint64_t ctime;   /* time of last status change */
+	uint32_t mode;    /* protection */
+	uint32_t uid;     /* user ID of owner */
+	uint32_t gid;     /* group ID of owner */
+	uint32_t blksize; /* blocksize for filesystem I/O */
 	uint16_t namelen;
 	uint8_t usernamelen;
 	uint8_t groupnamelen;
