@@ -32,12 +32,8 @@ int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
 
 int index_free(index_t *index) {
 	for (size_t i = 0; i < index->num_references; i++) {
-		const size_t limit = index->references[i].limit;
-		size_t num_pages = limit / ENTRIES_PER_PAGE;
-		const size_t remainder = limit % ENTRIES_PER_PAGE;
-		if (remainder) {
-			num_pages++;
-		}
+		const size_t num_pages = (index->references[i].limit + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
+
 		if (munmap(index->references[i].pages, num_pages * PAGE_SIZE)) {
 			perror("error unmapping index");
 			return -1;
@@ -119,10 +115,15 @@ int _index_fib_grow(index_t *index, size_t limit) {
 	}
 	index->fibidx = fibidx;
 
-	size_t num_pages = limit / ENTRIES_PER_PAGE;
-	const size_t remainder = limit % ENTRIES_PER_PAGE;
-	if (remainder) {
-		num_pages++;
+	if (limit > SIZE_MAX - ENTRIES_PER_PAGE + 1) {
+		fprintf(stderr, "index too big\n");
+		return -1;
+	}
+
+	const size_t num_pages = (limit + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
+	if (num_pages > SIZE_MAX / PAGE_SIZE) {
+		fprintf(stderr, "index too big\n");
+		return -1;
 	}
 
 	fibidx[nf].num_entries = 0;
