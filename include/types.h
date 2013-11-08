@@ -58,6 +58,7 @@ typedef struct dentry {
 	uint32_t gid;     /* group ID of owner */
 	uint64_t rdev;    /* device ID (if special file) */
 	uint64_t size;    /* total size, in bytes */
+	uint32_t blksize; /* blocksize for filesystem I/O */
 	uint64_t blocks;  /* number of 512B blocks allocated */
 	uint64_t atime;   /* time of last access */
 	uint64_t mtime;   /* time of last modification */

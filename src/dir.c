@@ -182,6 +182,7 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	d.gid = htobe32(buf.st_gid);
 	d.rdev = htobe64(buf.st_rdev);
 	d.size = htobe64(block_next->raw_bytes);
+	d.blksize = block->size;
 	d.blocks = htobe64((block_next->allocated_bytes + 511) / 512);
 	d.atime = htobe64(buf.st_atime);
 	d.mtime = htobe64(buf.st_mtime);
