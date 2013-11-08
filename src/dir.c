@@ -175,6 +175,7 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	assert(ref_len >= 2);
 
 	dentry_t d;
+	memset(&d, 0, sizeof(d));
 
 	d.mode = htobe32(buf.st_mode);
 	d.uid = htobe32(buf.st_uid);
