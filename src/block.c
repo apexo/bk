@@ -1,6 +1,8 @@
 #define _BSD_SOURCE
 #define _LARGEFILE64_SOURCE
+#define _POSIX_C_SOURCE 200809L
 
+#include <limits.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <endian.h>
@@ -405,46 +407,128 @@ ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, size_t 
 	return block_size;
 }
 
-ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigned char *dst, size_t size) {
-	if (block->idx[indir] == block->len[indir]) {
-		if (indir == block->indirection) {
-			return 0;
-		}
+ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigned char *dst, size_t size);
 
-		block_key_t encryption_key;
-		ssize_t n = _block_read(block, index, indir+1, encryption_key, BLOCK_KEY_SIZE);
-		if (n < 0) {
-			fprintf(stderr, "_block_read failed\n");
-			return -1;
-		}
-
-		if (n == 0) {
-			return 0;
-		}
-
-		if (n != BLOCK_KEY_SIZE) {
-			fprintf(stderr, "_block_read short result\n");
-			return -1;
-		}
-
-		n = _block_fetch(block, index, block->data[indir], block->size, encryption_key);
-		if (n < 0) {
-			fprintf(stderr, "_block_fetch failed\n");
-			return -1;
-		}
-
-		assert(n > 0);
-
-		block->len[indir] = n;
-		block->idx[indir] = 0;
+ssize_t _block_next(block_t *block, index_t *index, size_t indir) {
+	if (indir == block->indirection) {
+		return 0;
 	}
 
+	block_key_t encryption_key;
+	ssize_t n = _block_read(block, index, indir+1, encryption_key, BLOCK_KEY_SIZE);
+	if (n < 0) {
+		fprintf(stderr, "_block_read failed\n");
+		return -1;
+	}
+
+	if (n == 0) {
+		return 0;
+	}
+
+	if (n != BLOCK_KEY_SIZE) {
+		fprintf(stderr, "_block_read short result\n");
+		return -1;
+	}
+
+	n = _block_fetch(block, index, block->data[indir], block->size, encryption_key);
+	if (n < 0) {
+		fprintf(stderr, "_block_fetch failed\n");
+		return -1;
+	}
+
+	assert(n > 0);
+
+	block->len[indir] = n;
+	block->idx[indir] = 0;
+
+	return n;
+}
+
+ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigned char *dst, size_t size) {
+	if (block->idx[indir] == block->len[indir]) {
+		ssize_t n = _block_next(block, index, indir);
+		if (!n) {
+			return 0;
+		}
+		if (n < 0) {
+			fprintf(stderr, "_block_next failed\n");
+			return -1;
+		}
+	}
 
 	size_t n = block->len[indir] - block->idx[indir];
 	n = n < size ? n : size;
 	memcpy(dst, block->data[indir] + block->idx[indir], n);
 	block->idx[indir] += n;
 	return n;
+}
+
+ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t block_size, size_t ofs) {
+	size_t rem = block->len[0] - block->idx[0];
+	if (rem) {
+		if (rem > ofs) {
+			block->idx[0] = block->len[0];
+			return rem;
+		} else {
+			block->idx[0] += ofs;
+			return ofs;
+		}
+	}
+
+	if (indir == block->indirection) {
+		return 0;
+	}
+
+	if (ofs >= block_size) {
+		size_t blocks = ofs / block_size;
+		ssize_t skipped = _block_skip(block, index, indir + 1, block_size, blocks * BLOCK_KEY_SIZE);
+		if (skipped < 0) {
+			fprintf(stderr, "_block_skip failed\n");
+			return -1;
+		}
+		if (!skipped) {
+			return 0;
+		}
+		assert(!(skipped % BLOCK_KEY_SIZE));
+		return (skipped / BLOCK_KEY_SIZE) * block_size;
+	}
+
+	ssize_t bytes = _block_next(block, index, indir);
+	if (!bytes) {
+		return 0;
+	}
+	if (bytes < 0) {
+		fprintf(stderr, "_block_next failed\n");
+		return -1;
+	}
+
+	if (ofs >= bytes) {
+		block->idx[indir] = block->len[indir];
+		return bytes;
+	} else {
+		block->idx[indir] += ofs;
+		return ofs;
+	}
+}
+
+int block_skip(block_t *block, index_t *index, size_t block_size, off64_t ofs) {
+	if (ofs < 0) {
+		fprintf(stderr, "negative offset not supported\n");
+		return -1;
+	}
+	while (ofs > 0) {
+		const ssize_t chunk = ofs > SSIZE_MAX ? SSIZE_MAX : ofs;
+		const ssize_t skipped = _block_skip(block, index, 0, block_size, chunk);
+		if (skipped < 0) {
+			fprintf(stderr, "_block_skip failed\n");
+			return -1;
+		}
+		if (!skipped) {
+			return 0;
+		}
+		ofs -= skipped;
+	}
+	return 1;
 }
 
 ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t size) {

@@ -1,3 +1,5 @@
+#define _LARGEFILE64_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
