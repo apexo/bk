@@ -100,7 +100,7 @@ void _block_hash2(index_t *index, const block_key_t encryption_key, block_key_t 
 #define IS_COMPRESSIBLE(size, compressed) ((compressed) && ((compressed) < (size)) && ((size) - (compressed) > (size) / 20))
 
 const unsigned char *_block_compress(const unsigned char *src, size_t n, unsigned char *dst, block_size_t *compressed_block_size) {
-	int compressed = LZ4_compress(src, dst, n);
+	int compressed = LZ4_compress((const char*)src, (char*)dst, n);
 	if (IS_COMPRESSIBLE(n, compressed)) {
 		*compressed_block_size = compressed;
 		return dst;
@@ -392,7 +392,7 @@ ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, size_t 
 	}
 
 	if (compressed_block_size < block_size) {
-		int n = LZ4_decompress_safe(decrypted, dst, compressed_block_size, size);
+		int n = LZ4_decompress_safe((const char*)decrypted, (char*)dst, compressed_block_size, size);
 		if (n < 0) {
 			fprintf(stderr, "LZ4_decompress_safe failed\n");
 			return -1;

@@ -38,7 +38,7 @@ int _dir_write_file(block_stack_t *bs, size_t depth, block_t *block, index_t *in
 }
 
 int _dir_write_symlink(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int fd) {
-	int n = readlinkat(fd, "", block->temp0, block->size);
+	int n = readlinkat(fd, "", (char*)block->temp0, block->size);
 	if (n < 0) {
 		perror("readlinkat failed");
 		return -1;
@@ -54,7 +54,7 @@ int _dir_write_symlink(block_stack_t *bs, size_t depth, block_t *block, index_t 
 
 int _dir_write_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int fd) {
 	off64_t basep = 0;
-	char *buf = block->temp0;
+	char *buf = (char*)block->temp0;
 	ssize_t n = getdirentries(fd, buf, block->size, &basep);
 	while (n > 0) {
 		struct dirent *dent = (struct dirent*)buf;
@@ -198,17 +198,17 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 		return -1;
 	}
 
-	if (block_append(block, index, name, strlen(name))) {
+	if (block_append(block, index, (unsigned char*)name, strlen(name))) {
 		fprintf(stderr, "block_append failed\n");
 		return -1;
 	}
 
-	if (d.usernamelen && block_append(block, index, pwd->pw_name, d.usernamelen)) {
+	if (d.usernamelen && block_append(block, index, (unsigned char*)pwd->pw_name, d.usernamelen)) {
 		fprintf(stderr, "block_append failed\n");
 		return -1;
 	}
 
-	if (d.groupnamelen && block_append(block, index, grp->gr_name, d.groupnamelen)) {
+	if (d.groupnamelen && block_append(block, index, (unsigned char*)grp->gr_name, d.groupnamelen)) {
 		fprintf(stderr, "block_append failed\n");
 		return -1;
 	}
@@ -217,7 +217,6 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 }
 
 int dir_write(block_stack_t *bs, size_t depth, index_t *index, int fd, unsigned char *ref) {
-	off64_t basep = 0;
 	block_t *block = block_stack_get(bs, depth);
 	if (!block) {
 		fprintf(stderr, "block_stack_get failed\n");
