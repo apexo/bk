@@ -414,6 +414,6 @@ int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *f
 	return 0;
 }
 
-void index_alloc_ino(index_t *index, uint64_t *ino) {
-	*ino = index->next_ino++;
+uint64_t index_alloc_ino(index_t *index) {
+	return index->next_ino++;
 }

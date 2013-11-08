@@ -176,13 +176,13 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	dentry_t d;
 	memset(&d, 0, sizeof(d));
 
-	index_alloc_ino(index, &d.ino);
+	d.ino = htobe64(index_alloc_ino(index));
 	d.mode = htobe32(buf.st_mode);
 	d.uid = htobe32(buf.st_uid);
 	d.gid = htobe32(buf.st_gid);
 	d.rdev = htobe64(buf.st_rdev);
 	d.size = htobe64(block_next->raw_bytes);
-	d.blksize = block->size;
+	d.blksize = htobe32(block->size);
 	d.blocks = htobe64((block_next->allocated_bytes + 511) / 512);
 	d.atime = htobe64(buf.st_atime);
 	d.mtime = htobe64(buf.st_mtime);
