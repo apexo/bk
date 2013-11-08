@@ -132,6 +132,7 @@ int _index_fib_grow(index_t *index, size_t limit) {
 		perror("out of memory growing index");
 		return -1;
 	}
+	memset(fibidx[nf].pages, 0, num_pages * PAGE_SIZE);
 	index->num_fibidx++;
 
 	return 0;
@@ -243,7 +244,7 @@ int index_add_block(index_t *index, block_key_t block_key, file_offset_t file_of
 	while (idx + 1 < nf && fibidx[idx].num_entries && fibidx[idx + 1].num_entries) {
 		if (idx + 2 == nf) {
 			if (_index_fib_grow(index, fibidx[idx].limit + fibidx[idx + 1].limit)) {
-				perror("error adding block to index");
+				fprintf(stderr, "_index_fib_grow failed\n");
 				return -1;
 			}
 			fibidx = index->fibidx;

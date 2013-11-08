@@ -33,7 +33,7 @@ int block_init(block_t *block, size_t block_size) {
 		fprintf(stderr, "illegal block size: must be power of 2\n");
 		return -1;
 	}
-	if (pow2 < block_size) {
+	if (pow2 < block_size || block_size > LZ4_MAX_INPUT_SIZE) {
 		fprintf(stderr, "illegal block size: block size too big\n");
 		return -1;
 	}
@@ -167,7 +167,7 @@ int _block_data_write(index_t *index, const unsigned char *data, block_key_t sto
 	const ssize_t bytes_written = write(index->data_fd, data, compressed_block_size);
 
 	if (bytes_written < 0) {
-		perror("error writing data\n");
+		perror("write failed");
 		return -1;
 	}
 
@@ -258,7 +258,7 @@ int block_append(block_t *block, index_t *index, const unsigned char *data, size
 
 	while (block->len[0] + size >= bs) {
 		const size_t n1 = bs - block->len[0];
-		memcpy(block->data[0] + block->len[0], data, size);
+		memcpy(block->data[0] + block->len[0], data, n1);
 		data += n1;
 		size -= n1;
 		block->len[0] = bs;
@@ -276,6 +276,8 @@ int block_append(block_t *block, index_t *index, const unsigned char *data, size
 		block->len[0] += size;
 		return 0;
 	}
+
+	return 0;
 }
 
 int block_flush(block_t *block, index_t *index, unsigned char* ref) {
@@ -290,7 +292,7 @@ int block_flush(block_t *block, index_t *index, unsigned char* ref) {
 		}
 		indir++;
 	}
-	assert(indir < MAX_INDIRECTION);
+	assert(indir <= MAX_INDIRECTION);
 	assert(block->len[indir] <= INLINE_THRESHOLD);
 
 	ref[0] = block->len[indir];
@@ -311,7 +313,7 @@ int block_ref_length(const unsigned char *ref) {
 int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
 	size_t len = ref[0], indir = ref[1];
 
-	if (indir > MAX_INDIRECTION || len < BLOCK_KEY_SIZE || len > INLINE_THRESHOLD || len % BLOCK_KEY_SIZE) {
+	if (indir > MAX_INDIRECTION || (indir && len < BLOCK_KEY_SIZE) || len > INLINE_THRESHOLD || (indir && len % BLOCK_KEY_SIZE)) {
 		fprintf(stderr, "illegal reference\n");
 		return -1;
 	}
@@ -357,7 +359,7 @@ ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, size_t 
 	assert(size >= block->size);
 
 	if (!compressed_block_size || compressed_block_size > block_size) {
-		fprintf(stderr, "illegal compressed block size: %zd (%zd)\n", compressed_block_size, block_size);
+		fprintf(stderr, "illegal compressed block size: %d (%d)\n", compressed_block_size, block_size);
 		return -1;
 	}
 	
