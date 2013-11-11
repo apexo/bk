@@ -30,7 +30,7 @@ typedef uint32_t block_size_t;
 typedef struct index_page_header {
 	unsigned char magic[7];
 	unsigned char num_entries;
-	uint32_t block_size;
+	uint32_t blksize;
 } index_page_header_t;
 
 typedef struct index_page {
@@ -62,7 +62,6 @@ typedef struct dentry {
 	uint32_t mode;    /* protection */
 	uint32_t uid;     /* user ID of owner */
 	uint32_t gid;     /* group ID of owner */
-	uint32_t blksize; /* blocksize for filesystem I/O */
 	uint16_t namelen;
 	uint8_t usernamelen;
 	uint8_t groupnamelen;
@@ -95,19 +94,23 @@ typedef struct inode_cache {
 } inode_cache_t;
 
 typedef struct index {
-	int *ref_data_fd;
 	int data_fd;
-	size_t num_references;
-	size_t num_fibidx;
-	index_range_t *references;
-	index_range_t *fibidx;
+	size_t num_workidx;
+	index_range_t *workidx;
+
+	size_t num_ondiskidx;
+	int *ondiskidx_data_fd;
+	index_range_t *ondiskidx;
+	size_t *ondiskidx_blksize;
+
 	SHA256_CTX encryption_key_context;
 	SHA256_CTX storage_key_context;
 	uint64_t next_ino;
 } index_t;
 
 typedef struct block {
-	size_t size;
+	size_t blksize;
+	uint32_t idx_blksize;
 	size_t indirection;
 	size_t len[MAX_INDIRECTION + 1];
 	size_t idx[MAX_INDIRECTION + 1];
@@ -120,7 +123,7 @@ typedef struct block {
 } block_t;
 
 typedef struct block_stack {
-	size_t block_size;
+	size_t blksize;
 	size_t n;
 	size_t limit;
 	block_t *block;
@@ -159,4 +162,17 @@ typedef struct filter {
 
 	int flags;
 } filter_t;
+
+typedef struct args {
+	int verbose;
+	int list_only;
+	int xdev;
+	int dev;
+	filter_t filter;
+
+	size_t path_capacity;
+	size_t path_length;
+	char *path;
+} args_t;
+
 #endif

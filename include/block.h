@@ -17,6 +17,8 @@ int block_ref_length(const unsigned char *ref);
 
 int block_setup(block_t *block, const unsigned char *ref, size_t ref_len);
 int block_read(block_t *block, index_t *index, unsigned char *dst, size_t size);
-int block_skip(block_t *block, index_t *index, size_t block_size, off64_t ofs);
+int block_skip(block_t *block, index_t *index, off64_t ofs);
+
+int blksize_check(size_t blksize);
 
 #endif

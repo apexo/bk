@@ -1,5 +1,3 @@
-#define _LARGEFILE64_SOURCE
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
@@ -7,8 +5,8 @@
 #include "types.h"
 #include "block.h"
 
-int block_stack_init(block_stack_t *bs, size_t block_size, size_t recursion_limit) {
-	bs->block_size = block_size;
+int block_stack_init(block_stack_t *bs, size_t blksize, size_t recursion_limit) {
+	bs->blksize = blksize;
 	bs->n = 0;
 	bs->limit = recursion_limit;
 	bs->block = malloc(recursion_limit*sizeof(block_t));
@@ -39,7 +37,7 @@ block_t* block_stack_get(block_stack_t *bs, size_t idx) {
 		return NULL;
 	}
 
-	if (block_init(bs->block + idx, bs->block_size)) {
+	if (block_init(bs->block + idx, bs->blksize)) {
 		fprintf(stderr, "block_init failed\n");
 		return NULL;
 	}

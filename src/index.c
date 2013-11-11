@@ -1,7 +1,3 @@
-#define _BSD_SOURCE
-#define _LARGEFILE64_SOURCE
-#define __STDC_LIMIT_MACROS
-
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -13,16 +9,17 @@
 #include <string.h>
 
 #include "types.h"
+#include "block.h"
 
-int _index_fib_grow(index_t *index, size_t limit);
+int _index_workidx_grow(index_t *index, size_t limit);
 
 int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
 	memset(index, 0, sizeof(index_t));
 	index->next_ino = 2; // in FUSE, 0 is invalid and 1 is reserved for the root
-	if (_index_fib_grow(index, 1)) {
+	if (_index_workidx_grow(index, 1)) {
 		return -1;
 	}
-	if (_index_fib_grow(index, 1)) {
+	if (_index_workidx_grow(index, 1)) {
 		return -1;
 	}
 	SHA256_Init(&index->encryption_key_context);
@@ -32,32 +29,32 @@ int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
 }
 
 int index_free(index_t *index) {
-	for (size_t i = 0; i < index->num_references; i++) {
-		const size_t num_pages = (index->references[i].limit + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
+	for (size_t i = 0; i < index->num_ondiskidx; i++) {
+		const size_t num_pages = (index->ondiskidx[i].limit + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
 
-		if (munmap(index->references[i].pages, num_pages * PAGE_SIZE)) {
+		if (munmap(index->ondiskidx[i].pages, num_pages * PAGE_SIZE)) {
 			perror("error unmapping index");
 			return -1;
 		}
 	}
 
-	index->references = (index_range_t*)realloc(index->references, 0);
-	index->ref_data_fd = (int*)realloc(index->ref_data_fd, 0);
-	index->num_references = 0;
+	index->ondiskidx = (index_range_t*)realloc(index->ondiskidx, 0);
+	index->ondiskidx_data_fd = (int*)realloc(index->ondiskidx_data_fd, 0);
+	index->num_ondiskidx = 0;
 
-	for (size_t i = 0; i < index->num_fibidx; i++) {
-		free((void*)index->fibidx[i].pages);
+	for (size_t i = 0; i < index->num_workidx; i++) {
+		free((void*)index->workidx[i].pages);
 	}
 
-	index->fibidx = (index_range_t*)realloc(index->fibidx, 0);
+	index->workidx = (index_range_t*)realloc(index->workidx, 0);
 	index->data_fd = 0;
-	index->num_fibidx = 0;
+	index->num_workidx = 0;
 
 	return 0;
 }
 
 int index_add_reference(index_t *index, int index_fd, int data_fd) {
-	const size_t nr = index->num_references;
+	const size_t nr = index->num_ondiskidx;
 	const off64_t idx_size = lseek64(index_fd, 0, SEEK_END);
 	if (idx_size == (off64_t)-1) {
 		perror("error seeking to end of index");
@@ -74,17 +71,26 @@ int index_add_reference(index_t *index, int index_fd, int data_fd) {
 		return -1;
 	}
 
-	int *ref_data_fd = (int*)realloc(index->ref_data_fd, (nr + 1) * sizeof(int));
-	if (!ref_data_fd) {
-		perror("out of memory adding index reference");
+	int *ondiskidx_data_fd = (int*)realloc(index->ondiskidx_data_fd, (nr + 1) * sizeof(int));
+	if (!ondiskidx_data_fd) {
+		perror("out of memory");
+		return -1;
 	}
-	index->ref_data_fd = ref_data_fd;
+	index->ondiskidx_data_fd = ondiskidx_data_fd;
 
-	index_range_t *references = (index_range_t*)realloc(index->references, (nr + 1) * sizeof(index_range_t));
-	if (!references) {
-		perror("out of memory adding index reference");
+	index_range_t *ondiskidx = (index_range_t*)realloc(index->ondiskidx, (nr + 1) * sizeof(index_range_t));
+	if (!ondiskidx) {
+		perror("out of memory");
+		return -1;
 	}
-	index->references = references;
+	index->ondiskidx = ondiskidx;
+
+	size_t *ondiskidx_blksize = (size_t*)realloc(index->ondiskidx_blksize, (nr + 1) * sizeof(size_t));
+	if (!ondiskidx_blksize) {
+		perror("out of memory");
+		return -1;
+	}
+	index->ondiskidx_blksize = ondiskidx_blksize;
 
 	void *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, index_fd, 0);
 	if (data == MAP_FAILED) {
@@ -92,29 +98,39 @@ int index_add_reference(index_t *index, int index_fd, int data_fd) {
 		return -1;
 	}
 
-	ref_data_fd[nr] = data_fd;
+	ondiskidx_data_fd[nr] = data_fd;
 
 	index_page_t* pages = (index_page_t*)data;
 	const size_t num_full_pages = (idx_size - PAGE_SIZE) / PAGE_SIZE;
 	const index_page_t* last_page = pages + num_full_pages;
 	const size_t num_entries = num_full_pages * ENTRIES_PER_PAGE + last_page->header.num_entries;
 	
-	references[nr].pages = pages;
-	references[nr].num_entries = num_entries;
-	references[nr].limit = num_entries;
-	index->num_references++;
+	ondiskidx[nr].pages = pages;
+	ondiskidx[nr].num_entries = num_entries;
+	ondiskidx[nr].limit = num_entries;
+
+	uint32_t blksize = be32toh(pages->header.blksize);
+
+	if (blksize_check(blksize)) {
+		fprintf(stderr, "blksize_check failed (%d)\n", blksize);
+		return -1;
+	}
+
+	ondiskidx_blksize[nr] = blksize;
+
+	index->num_ondiskidx++;
 
 	return 0;
 }
 
-int _index_fib_grow(index_t *index, size_t limit) {
-	const size_t nf = index->num_fibidx;
-	index_range_t *fibidx = (index_range_t*)realloc(index->fibidx, (nf + 1) * sizeof(index_range_t));
-	if (!fibidx) {
+int _index_workidx_grow(index_t *index, size_t limit) {
+	const size_t nf = index->num_workidx;
+	index_range_t *workidx = (index_range_t*)realloc(index->workidx, (nf + 1) * sizeof(index_range_t));
+	if (!workidx) {
 		perror("out of memory");
 		return -1;
 	}
-	index->fibidx = fibidx;
+	index->workidx = workidx;
 
 	if (limit > SIZE_MAX - ENTRIES_PER_PAGE + 1) {
 		fprintf(stderr, "index too big\n");
@@ -127,15 +143,15 @@ int _index_fib_grow(index_t *index, size_t limit) {
 		return -1;
 	}
 
-	fibidx[nf].num_entries = 0;
-	fibidx[nf].limit = limit;
-	fibidx[nf].pages = (index_page_t*)malloc(num_pages * PAGE_SIZE);
-	if (!fibidx[nf].pages) {
+	workidx[nf].num_entries = 0;
+	workidx[nf].limit = limit;
+	workidx[nf].pages = (index_page_t*)malloc(num_pages * PAGE_SIZE);
+	if (!workidx[nf].pages) {
 		perror("out of memory");
 		return -1;
 	}
-	memset(fibidx[nf].pages, 0, num_pages * PAGE_SIZE);
-	index->num_fibidx++;
+	memset(workidx[nf].pages, 0, num_pages * PAGE_SIZE);
+	index->num_workidx++;
 
 	return 0;
 }
@@ -231,35 +247,35 @@ void _index_range_merge(index_range_t *dst, index_range_t *src1, index_range_t *
 int index_add_block(index_t *index, block_key_t block_key, file_offset_t file_offset, block_size_t block_size, block_size_t compressed_block_size) {
 	assert(compressed_block_size && compressed_block_size <= block_size);
 
-	size_t nf = index->num_fibidx;
-	index_range_t *fibidx = index->fibidx;
+	size_t nf = index->num_workidx;
+	index_range_t *workidx = index->workidx;
 
-	size_t idx = fibidx[1].num_entries ? 0 : 1;
-	index_page_t *page = fibidx[idx].pages;
+	size_t idx = workidx[1].num_entries ? 0 : 1;
+	index_page_t *page = workidx[idx].pages;
 
 	memcpy(page->key[0], block_key, BLOCK_KEY_SIZE);
 	page->file_offset[0] = htobe64(file_offset);
 	page->block_size[0] = htobe32(block_size);
 	page->compressed_block_size[0] = htobe32(compressed_block_size);
-	fibidx[idx].num_entries = 1;
+	workidx[idx].num_entries = 1;
 
-	while (idx + 1 < nf && fibidx[idx].num_entries && fibidx[idx + 1].num_entries) {
+	while (idx + 1 < nf && workidx[idx].num_entries && workidx[idx + 1].num_entries) {
 		if (idx + 2 == nf) {
-			if (_index_fib_grow(index, fibidx[idx].limit + fibidx[idx + 1].limit)) {
-				fprintf(stderr, "_index_fib_grow failed\n");
+			if (_index_workidx_grow(index, workidx[idx].limit + workidx[idx + 1].limit)) {
+				fprintf(stderr, "_index_workidx_grow failed\n");
 				return -1;
 			}
-			fibidx = index->fibidx;
-			nf = index->num_fibidx;
+			workidx = index->workidx;
+			nf = index->num_workidx;
 		}
 
-		assert(fibidx[idx].num_entries == fibidx[idx].limit);
-		assert(fibidx[idx+1].num_entries == fibidx[idx+1].limit);
-		assert(!fibidx[idx+2].num_entries);
-		assert(fibidx[idx+2].limit == fibidx[idx].limit + fibidx[idx+1].limit);
+		assert(workidx[idx].num_entries == workidx[idx].limit);
+		assert(workidx[idx+1].num_entries == workidx[idx+1].limit);
+		assert(!workidx[idx+2].num_entries);
+		assert(workidx[idx+2].limit == workidx[idx].limit + workidx[idx+1].limit);
 
 		// printf("(auto) merging %d and %d -> %d\n", idx, idx+1, idx+2);
-		_index_range_merge(fibidx+(idx+2), fibidx+(idx+1), fibidx+idx);
+		_index_range_merge(workidx+(idx+2), workidx+(idx+1), workidx+idx);
 		idx += 2;
 	}
 
@@ -315,11 +331,11 @@ int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagen
 	return -1;
 }
 
-int _index_range_write(index_range_t *index, int fd, size_t block_size) {
+int _index_range_write(index_range_t *index, int fd, size_t blksize) {
 	index_page_t *page = index->pages;
 	size_t remaining = index->num_entries;
 
-	if (block_size > UINT32_MAX) {
+	if (blksize > UINT32_MAX) {
 		fprintf(stderr, "block size out of bounds\n");
 		return -1;
 	}
@@ -328,7 +344,7 @@ int _index_range_write(index_range_t *index, int fd, size_t block_size) {
 		const size_t n = remaining >= ENTRIES_PER_PAGE ? ENTRIES_PER_PAGE : remaining;
 		memcpy(page->header.magic, MAGIC, strlen(MAGIC) + 1);
 		page->header.num_entries = n;
-		page->header.block_size = block_size;
+		page->header.blksize = htobe32(blksize);
 		const ssize_t bytes_written = write(fd, page, PAGE_SIZE);
 		if (bytes_written < PAGE_SIZE) {
 			perror("error writing index - disk full?");
@@ -342,30 +358,30 @@ int _index_range_write(index_range_t *index, int fd, size_t block_size) {
 	}
 }
 
-int index_write(index_t *index, int fd, size_t block_size) {
-	index_range_t *fibidx = index->fibidx;
-	size_t nf = index->num_fibidx;
+int index_write(index_t *index, int fd, size_t blksize) {
+	index_range_t *workidx = index->workidx;
+	size_t nf = index->num_workidx;
 	size_t the_real_index = 0;
 	for (size_t i1 = 0; i1 < nf; i1++) {
-		if (fibidx[i1].num_entries) {
+		if (workidx[i1].num_entries) {
 			the_real_index = i1;
 
 			for (size_t i2 = i1 + 1; i2 < nf; i2++) {
-				if (fibidx[i2].num_entries) {
+				if (workidx[i2].num_entries) {
 					if (i2 == nf - 1) {
-						if (_index_fib_grow(index, fibidx[i1].num_entries + fibidx[i2].num_entries)) {
+						if (_index_workidx_grow(index, workidx[i1].num_entries + workidx[i2].num_entries)) {
 							perror("error merging index");
 							return -1;
 						}
 
-						fibidx = index->fibidx;
-						nf = index->num_fibidx;
+						workidx = index->workidx;
+						nf = index->num_workidx;
 					}
 
-					assert(!fibidx[i2+1].num_entries);
-					assert(fibidx[i2+1].limit >= fibidx[i1].num_entries + fibidx[i2].num_entries);
+					assert(!workidx[i2+1].num_entries);
+					assert(workidx[i2+1].limit >= workidx[i1].num_entries + workidx[i2].num_entries);
 
-					_index_range_merge(fibidx+(i2+1), fibidx+i2, fibidx+i1);
+					_index_range_merge(workidx+(i2+1), workidx+i2, workidx+i1);
 					the_real_index = i2 + 1;
 					break;
 				}
@@ -374,10 +390,10 @@ int index_write(index_t *index, int fd, size_t block_size) {
 		}
 	}
 
-	// assert(fibidx[the_real_index].num_entries);
+	// assert(workidx[the_real_index].num_entries);
 
-	fprintf(stderr, "writing out %zd entries from index %zd\n", fibidx[the_real_index].num_entries, the_real_index);
-	if (_index_range_write(fibidx + the_real_index, fd, block_size)) {
+	fprintf(stderr, "writing out %zd entries from index %zd\n", workidx[the_real_index].num_entries, the_real_index);
+	if (_index_range_write(workidx + the_real_index, fd, blksize)) {
 		perror("error writing index");
 		return -1;
 	}
@@ -385,22 +401,22 @@ int index_write(index_t *index, int fd, size_t block_size) {
 	return 0;
 }
 
-int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size) {
+int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size, uint32_t *blksize) {
 	index_page_t *page;
 	size_t pagenum, pageidx;
 
-	for (size_t i = 0; i < index->num_references; i++) {
-		if (!_index_range_lookup(index->references + i, key, &pagenum, &pageidx)) {
-			*data_fd = index->ref_data_fd[i];
-			page = index->references[i].pages + pagenum;
+	for (size_t i = 0; i < index->num_ondiskidx; i++) {
+		if (!_index_range_lookup(index->ondiskidx + i, key, &pagenum, &pageidx)) {
+			*data_fd = index->ondiskidx_data_fd[i];
+			page = index->ondiskidx[i].pages + pagenum;
 			goto ok;
 		}
 	}
 
-	for (size_t i = 0; i < index->num_fibidx; i++) {
-		if (!_index_range_lookup(index->fibidx + i, key, &pagenum, &pageidx)) {
+	for (size_t i = 0; i < index->num_workidx; i++) {
+		if (!_index_range_lookup(index->workidx + i, key, &pagenum, &pageidx)) {
 			*data_fd = index->data_fd;
-			page = index->fibidx[i].pages + pagenum;
+			page = index->workidx[i].pages + pagenum;
 			goto ok;
 		}
 	}
@@ -411,6 +427,7 @@ int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *f
 	*file_offset = be64toh(page->file_offset[pageidx]);
 	*block_size = be32toh(page->block_size[pageidx]);
 	*compressed_block_size = be32toh(page->compressed_block_size[pageidx]);
+	*blksize = be32toh(page->header.blksize);
 	return 0;
 }
 
