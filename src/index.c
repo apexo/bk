@@ -53,7 +53,7 @@ int index_free(index_t *index) {
 	return 0;
 }
 
-int index_add_reference(index_t *index, int index_fd, int data_fd) {
+int index_add_ondiskidx(index_t *index, int index_fd, int data_fd) {
 	const size_t nr = index->num_ondiskidx;
 	const off64_t idx_size = lseek64(index_fd, 0, SEEK_END);
 	if (idx_size == (off64_t)-1) {

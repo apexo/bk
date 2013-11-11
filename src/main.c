@@ -109,8 +109,8 @@ int do_backup(int argc, char *argv[], int idx) {
 			} else if (!target) {
 				target = optarg;
 			} else {
-				if (add_reference_by_name(&index, optarg, 1)) {
-					fprintf(stderr, "add_reference_by_name failed\n");
+				if (add_ondiskidx_by_name(&index, optarg, 1)) {
+					fprintf(stderr, "add_ondiskidx_by_name failed\n");
 					return 1;
 				}
 			}
@@ -223,8 +223,8 @@ int do_mount(int argc, char *argv[], int idx) {
 		}
 
 		if (c == 1) {
-			if (add_reference_by_name(&index, optarg, 0)) {
-				fprintf(stderr, "add_reference_by_name failed\n");
+			if (add_ondiskidx_by_name(&index, optarg, 0)) {
+				fprintf(stderr, "add_ondiskidx_by_name failed\n");
 				return 1;
 			}
 		}
