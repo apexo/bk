@@ -100,4 +100,28 @@ typedef struct block_stack {
 	block_t *block;
 } block_stack_t;
 
+typedef struct filter_rule {
+	size_t count;
+	char **path;
+	int include;
+} filter_rule_t;
+
+typedef struct filter_match {
+	size_t capacity;
+	size_t count;
+	filter_rule_t **rules;
+	size_t *idx;
+	int include;
+} filter_match_t;
+
+typedef struct filter {
+	size_t rule_count;
+	filter_rule_t **rules;
+
+	size_t max_depth;
+	size_t depth;
+	filter_match_t *match;
+
+	int flags;
+} filter_t;
 #endif
