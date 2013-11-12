@@ -13,7 +13,7 @@
 #include "block.h"
 #include "index.h"
 
-int _index_workidx_grow(index_t *index, size_t limit);
+static int _index_workidx_grow(index_t *index, size_t limit);
 
 int index_init(index_t *index, int readonly, const unsigned char *salt, size_t salt_len) {
 	assert(sizeof(index_header_t) == PAGE_SIZE);
@@ -195,7 +195,7 @@ int index_free(index_t *index) {
 	return 0;
 }
 
-int _index_workidx_grow(index_t *index, size_t limit) {
+static int _index_workidx_grow(index_t *index, size_t limit) {
 	const size_t nf = index->num_workidx;
 	index_range_t *workidx = (index_range_t*)realloc(index->workidx, (nf + 1) * sizeof(index_range_t));
 	if (!workidx) {
@@ -228,7 +228,7 @@ int _index_workidx_grow(index_t *index, size_t limit) {
 	return 0;
 }
 
-void _index_range_merge(index_range_t *dst, index_range_t *src1, index_range_t *src2) {
+static void _index_range_merge(index_range_t *dst, index_range_t *src1, index_range_t *src2) {
 	index_page_t *ps1 = src1->pages, *ps2 = src2->pages, *pd = dst->pages;
 	size_t n1 = src1->num_entries, n2 = src2->num_entries, ips1 = 0, ips2 = 0, ipd = 0;
 
@@ -359,7 +359,7 @@ typedef uint32_t lookup_key_t;
 #define LOOKUP_KEY_MIN 0
 #define LOOKUP_KEY_MAX UINT32_MAX
 
-int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagenum, size_t *ret_pageidx) {
+static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagenum, size_t *ret_pageidx) {
 	const index_page_t *pages = range->pages;
 	const lookup_key_t nk = LOOKUP_KEY(key);
 	lookup_key_t nl = LOOKUP_KEY_MIN, nr = LOOKUP_KEY_MAX;
@@ -463,7 +463,7 @@ static int _index_write_data(int fd, index_t *index, index_range_t *range, size_
 	return 0;
 }
 
-int _index_range_write(index_t *index, index_range_t *range, int fd) {
+static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 	if (index->blksize > UINT32_MAX) {
 		fprintf(stderr, "block size out of bounds\n");
 		return -1;
