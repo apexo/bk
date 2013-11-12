@@ -40,7 +40,7 @@ int do_help_backup(int argc, char *argv[]) {
 }
 
 int do_help_mount(int argc, char *argv[]) {
-	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... -- <mountpoint> [fuse-options]\n", argv[0]);
+	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
 	return 1;
 }
@@ -240,7 +240,13 @@ int do_mount(int argc, char *argv[], int idx) {
 		}
 
 		if (c == 1) {
-			// TODO: check whether this could be a valid mountpoint (i.e.: an existing directory)
+			struct stat stbuf;
+			// could this be a mountpoint (i.e.: an existing directory)? if so, we assume fuse arguments start here
+			if (!stat(optarg, &stbuf) && S_ISDIR(stbuf.st_mode)) {
+				optind--;
+				break;
+			}
+
 			if (add_ondiskidx_by_name(&index, optarg, 0)) {
 				fprintf(stderr, "add_ondiskidx_by_name failed\n");
 				index_free(&index);
