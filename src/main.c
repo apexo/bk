@@ -214,19 +214,23 @@ int do_mount(int argc, char *argv[], int idx) {
 		if (c == 'R' || (!c && option_index == 0)) {
 			if (ref_len) {
 				fprintf(stderr, "duplicate root reference\n");
+				index_free(&index);
 				return do_help_mount(argc, argv);
 			}
 			ref_len = parse_hex_reference(optarg, ref);
 			if (ref_len < 0) {
 				fprintf(stderr, "illegal root reference\n");
+				index_free(&index);
 				return do_help_mount(argc, argv);
 			}
 			continue;
 		}
 
 		if (c == 1) {
+			// TODO: check whether this could be a valid mountpoint (i.e.: an existing directory)
 			if (add_ondiskidx_by_name(&index, optarg, 0)) {
 				fprintf(stderr, "add_ondiskidx_by_name failed\n");
+				index_free(&index);
 				return 1;
 			}
 		}
@@ -234,6 +238,7 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	if (!index.num_ondiskidx) {
 		fprintf(stderr, "at least one index required\n");
+		index_free(&index);
 		return do_help_mount(argc, argv);
 	}
 
