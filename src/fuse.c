@@ -215,7 +215,11 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		stbuf.st_ino = be64toh(dentry->ino);
 		size_t m = fuse_add_direntry(req, reply + idx, size - idx, name, &stbuf, off + n);
 		if (m > size - idx) {
-			block_cache_put(&block_cache, cache_index, ino, off + n - 2);
+			if (block->idx[0] >= n) {
+				// easy: "unread" dentry and put block back in cache
+				block->idx[0] -= n;
+				block_cache_put(&block_cache, cache_index, ino, off - 2);
+			} // otherwise: dentry was probably split on block boundary
 			goto full;
 		}
 		idx += m;
