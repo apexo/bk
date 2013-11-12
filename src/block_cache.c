@@ -19,7 +19,6 @@ int block_cache_init(block_cache_t *cache, size_t block_size) {
 }
 
 block_t *block_cache_get(block_cache_t *cache, inode_cache_t *inode_cache, index_t *index, uint64_t ino, off_t off, size_t *cache_index) {
-#if 0
 	for (size_t i = 0; i < BLOCK_CACHE_SIZE; i++) {
 		if (cache->ino[i] == ino && cache->off[i] == off) {
 			*cache_index = i;
@@ -28,7 +27,6 @@ block_t *block_cache_get(block_cache_t *cache, inode_cache_t *inode_cache, index
 			return cache->block + i;
 		}
 	}
-#endif
 
 	const inode_t *inode = inode_cache_lookup(inode_cache, ino);
 	if (!inode) {
