@@ -102,6 +102,17 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 	}
 
 	const index_header_t *header = (index_header_t*)data;
+
+	if (memcmp(header->magic, MAGIC, strlen(MAGIC)+1)) {
+		fprintf(stderr, "invalid index magic\n");
+		goto err;
+	}
+
+	if (be32toh(header->version) != VERSION) {
+		fprintf(stderr, "unsupported index version\n");
+		goto err;
+	}
+
 	const size_t num_idx_pages = (idx_size - PAGE_SIZE) / PAGE_SIZE;
 	const size_t num_entries = be64toh(header->num_entries);
 	const size_t max_entries = num_idx_pages * ENTRIES_PER_PAGE;
