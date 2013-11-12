@@ -298,7 +298,8 @@ static int _block_dedup(block_t *block, index_t *index, const unsigned char *blo
 
 	ondiskidx_t *ondiskidx;
 
-	// TODO: update stats & used bitmap
+	index->header.total_blocks++;
+	index->header.total_bytes += block_size;
 
 	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
 		const unsigned char* compressed_data = _block_compress(block_data, block_size, block->temp1, &compressed_block_size);
@@ -311,6 +312,12 @@ static int _block_dedup(block_t *block, index_t *index, const unsigned char *blo
 			return -1;
 		}
 		block->allocated_bytes += compressed_block_size;
+		index->header.dedup_blocks++;
+		index->header.dedup_bytes += block_size;
+		index->header.dedup_compressed_bytes += compressed_block_size;
+		index->header.internal_blocks++;
+		index->header.internal_bytes += block_size;
+		index->header.internal_compressed_bytes += compressed_block_size;
 	}
 
 	return 0;

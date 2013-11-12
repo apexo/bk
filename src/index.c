@@ -359,7 +359,7 @@ typedef uint32_t lookup_key_t;
 #define LOOKUP_KEY_MIN 0
 #define LOOKUP_KEY_MAX UINT32_MAX
 
-static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagenum, size_t *ret_pageidx) {
+static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagenum, size_t *ret_pageidx, uint8_t *used) {
 	const index_page_t *pages = range->pages;
 	const lookup_key_t nk = LOOKUP_KEY(key);
 	lookup_key_t nl = LOOKUP_KEY_MIN, nr = LOOKUP_KEY_MAX;
@@ -392,7 +392,9 @@ static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *re
 		} else { // p == 0
 			*ret_pagenum = pagenum;
 			*ret_pageidx = pageidx;
-			//fprintf(stderr, "lookup success: %d / %d\n", pagenum, pageidx);
+			if (used) {
+				used[idx >> 3] |= 128 >> (idx & 7);
+			}
 			return 0;
 		}
 
@@ -404,6 +406,45 @@ static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *re
 }
 
 #define CHUNK_SIZE (4096*1024)
+
+static void _index_finish_stats(index_t *index) {
+	for (size_t i = 0; i < index->num_ondiskidx; i++) {
+		const ondiskidx_t *ondiskidx = index->ondiskidx + i;
+		const uint8_t *used = ondiskidx->used;
+		for (size_t j = 0; j < ondiskidx->range.num_entries; j++) {
+			if (used[j >> 3] & (128 >> (j & 7))) {
+				const size_t pagenum = j / ENTRIES_PER_PAGE;
+				const size_t pageidx = j % ENTRIES_PER_PAGE;
+				const index_page_t *page = ondiskidx->range.pages + pagenum;
+
+				index->header.dedup_blocks++;
+				index->header.dedup_bytes += be32toh(page->block_size[pageidx]);
+				index->header.dedup_compressed_bytes += be32toh(page->compressed_block_size[pageidx]);
+			}
+		}
+	}
+
+	fprintf(stderr, "total: %'zd bytes in %'zd blocks\n",
+		index->header.total_bytes, index->header.total_blocks);
+	fprintf(stderr, "after deduplication: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		index->header.dedup_bytes, index->header.dedup_blocks, index->header.dedup_compressed_bytes);
+	fprintf(stderr, "written: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		index->header.internal_bytes, index->header.internal_blocks, index->header.internal_compressed_bytes);
+	fprintf(stderr, "external references: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		index->header.dedup_bytes - index->header.internal_bytes,
+		index->header.dedup_blocks - index->header.internal_blocks,
+		index->header.dedup_compressed_bytes - index->header.internal_compressed_bytes
+	);
+
+	index->header.total_blocks = be64toh(index->header.total_blocks);
+	index->header.total_bytes = be64toh(index->header.total_bytes);
+	index->header.dedup_blocks = be64toh(index->header.dedup_blocks);
+	index->header.dedup_bytes = be64toh(index->header.dedup_bytes);
+	index->header.dedup_compressed_bytes = be64toh(index->header.dedup_compressed_bytes);
+	index->header.internal_blocks = be64toh(index->header.internal_blocks);
+	index->header.internal_bytes = be64toh(index->header.internal_bytes);
+	index->header.internal_compressed_bytes = be64toh(index->header.internal_compressed_bytes);
+}
 
 static void _index_hash(index_t *index, index_range_t *range, size_t num_pages) {
 	SHA256_CTX ctx;
@@ -484,6 +525,7 @@ static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 		return -1;
 	}
 
+	_index_finish_stats(index);
 	_index_hash(index, range, num_pages);
 
 	if (_index_write_header(fd, index, range)) {
@@ -549,7 +591,7 @@ int index_lookup(index_t *index, block_key_t key, file_offset_t *file_offset, bl
 	size_t pagenum, pageidx;
 
 	for (size_t i = 0; i < index->num_ondiskidx; i++) {
-		if (!_index_range_lookup(&(index->ondiskidx + i)->range, key, &pagenum, &pageidx)) {
+		if (!_index_range_lookup(&(index->ondiskidx + i)->range, key, &pagenum, &pageidx, index->ondiskidx[i].used)) {
 			*ondiskidx = index->ondiskidx + i;
 			page = index->ondiskidx[i].range.pages + pagenum;
 			goto ok;
@@ -557,7 +599,7 @@ int index_lookup(index_t *index, block_key_t key, file_offset_t *file_offset, bl
 	}
 
 	for (size_t i = 0; i < index->num_workidx; i++) {
-		if (!_index_range_lookup(index->workidx + i, key, &pagenum, &pageidx)) {
+		if (!_index_range_lookup(index->workidx + i, key, &pagenum, &pageidx, NULL)) {
 			*ondiskidx = NULL;
 			page = index->workidx[i].pages + pagenum;
 			goto ok;
