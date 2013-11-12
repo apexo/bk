@@ -2,6 +2,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <stdlib.h>
+#include <assert.h>
 
 #include "types.h"
 #include "index.h"
@@ -36,7 +38,7 @@ int do_help_backup(int argc, char *argv[]) {
 }
 
 int do_help_mount(int argc, char *argv[]) {
-	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
+	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... -- <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
 	return 1;
 }
@@ -242,7 +244,45 @@ int do_mount(int argc, char *argv[], int idx) {
 		}
 	}
 
-	return fuse_main(&index, ref, ref_len, blksize, argc - optind, argv + optind);
+	char* arg0_a = argv[0];
+	const char* arg0_b = " mount [...] --";
+	size_t arglen = strlen(arg0_a) + strlen(arg0_b) + 1;
+	for (size_t i = optind; i < argc; i++) {
+		arglen += strlen(argv[i]) + 1;
+	}
+	const int fuse_argc = argc - optind + 1;
+	char **fuse_argv = malloc(sizeof(char*) * fuse_argc);
+	if (!fuse_argv) {
+		perror("out of memory");
+		index_free(&index);
+		return 1;
+	}
+	char *fuse_args = malloc(arglen);
+	if (!fuse_argc) {
+		perror("out of memory");
+		index_free(&index);
+		free(fuse_argv);
+		return 1;
+	}
+	char *argpos = fuse_args;
+	fuse_argv[0] = argpos;
+	memcpy(argpos, arg0_a, strlen(arg0_a)); argpos += strlen(arg0_a);
+	memcpy(argpos, arg0_b, strlen(arg0_b)); argpos += strlen(arg0_b);
+	*argpos = 0; argpos++;
+	for (size_t i = optind; i < argc; i++) {
+		fuse_argv[i - optind + 1] = argpos;
+		memcpy(argpos, argv[i], strlen(argv[i]));
+		argpos += strlen(argv[i]);
+		*argpos = 0;
+		argpos++;
+	}
+	assert(argpos == fuse_args + arglen);
+
+	int rc = fuse_main(&index, ref, ref_len, blksize, fuse_argc, fuse_argv);
+	index_free(&index);
+	free(fuse_args);
+	free(fuse_argv);
+	return rc;
 }
 
 int main(int argc, char *argv[]) {
