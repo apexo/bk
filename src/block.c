@@ -420,10 +420,8 @@ int block_ref_length(const unsigned char *ref) {
 	return ref[0] + 2;
 }
 
-int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
-	size_t len = ref[0], indir = ref[1];
-
-	block->idx_blksize = 0;
+int block_ref_check(const unsigned char *ref, size_t ref_len) {
+	const size_t len = ref[0], indir = ref[1];
 
 	if (indir > MAX_INDIRECTION || (indir && len < BLOCK_KEY_SIZE) || len > INLINE_THRESHOLD || (indir && len % BLOCK_KEY_SIZE)) {
 		fprintf(stderr, "illegal reference\n");
@@ -434,6 +432,19 @@ int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
 		fprintf(stderr, "illegal reference\n");
 		return -1;
 	}
+
+	return 0;
+}
+
+int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
+	if (block_ref_check(ref, ref_len)) {
+		fprintf(stderr, "block_ref_check failed\n");
+		return -1;
+	}
+
+	const size_t len = ref[0], indir = ref[1];
+
+	block->idx_blksize = 0;
 
 	for (size_t i = 1; i <= indir; i++) {
 		if (!block->data[i]) {

@@ -20,5 +20,6 @@ ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t si
 int block_skip(block_t *block, index_t *index, off64_t ofs);
 
 int blksize_check(size_t blksize);
+int block_ref_check(const unsigned char *ref, size_t ref_len);
 
 #endif

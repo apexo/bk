@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <limits.h>
+#include <unistd.h>
+#include <termios.h>
 
 #include "types.h"
 #include "index.h"
@@ -14,7 +16,118 @@
 #include "util.h"
 #include "fuse.h"
 
+
 #define DEFAULT_BLOCK_SIZE 65536
+
+static int read_root_ref_from_tty(int fd, unsigned char *ref) {
+	// TODO: maybe put temp in locked memory?
+	char temp[MAX_REF_SIZE * 2 + 1];
+
+	struct termios termios, termios_org;
+	if (tcgetattr(fd, &termios)) {
+		perror("tcgetattr failed");
+		return -1;
+	}
+	memcpy(&termios_org, &termios, sizeof(struct termios));
+
+	termios.c_lflag = (termios.c_lflag & ~ECHO) | ICANON;
+	if (termios.c_lflag != termios_org.c_lflag) {
+		if (tcsetattr(fd, TCSANOW, &termios)) {
+			perror("tcsetattr failed");
+			return -1;
+		}
+	}
+
+	fprintf(stderr, "root reference: ");
+
+	ssize_t n = read(fd, temp, sizeof(temp));
+
+	fprintf(stderr, "\n");
+
+	if (termios.c_lflag != termios_org.c_lflag) {
+		if (tcsetattr(fd, TCSANOW, &termios_org)) {
+			perror("tcsetattr failed");
+		}
+	}
+
+	if (n < 0) {
+		perror("read failed");
+		return -1;
+	}
+
+	if (!n) {
+		fprintf(stderr, "read failed\n");
+		return -1;
+	}
+
+	if (n == sizeof(temp) && temp[n - 1] != '\n') {
+		fprintf(stderr, "reference too long\n");
+		while (n == sizeof(temp) && temp[n - 1] != '\n') {
+			n = read(fd, temp, sizeof(temp));
+			if (n < 0) {
+				perror("read failed");
+			}
+		}
+		return -1;
+	}
+
+	if (temp[n - 1] != '\n') {
+		fprintf(stderr, "expected line feed\n");
+		return -1;
+	}
+
+	temp[n-1] = 0;
+	int ref_len = parse_hex_reference(temp, ref);
+	if (ref_len < 0) {
+		return -1;
+	}
+
+	return ref_len;
+}
+
+static int read_root_ref_from_pipe(int fd, unsigned char *ref) {
+	// TODO: maybe put temp in locked memory?
+	char temp[MAX_REF_SIZE * 2 + 1];
+	memset(temp, 0, sizeof(temp));
+
+	size_t len = 0, n;
+	char chr;
+	while ((n = read(fd, &chr, 1)) == 1) {
+		if (chr == '\n') {
+			temp[len] = 0;
+			n = 0;
+			break;
+		} else if (len == MAX_REF_SIZE * 2) {
+			fprintf(stderr, "reference too long\n");
+			return -1;
+		} else {
+			temp[len++] = chr;
+		}
+	}
+
+	if (n < 0) {
+		perror("read failed");
+		return -1;
+	}
+
+	int ref_len = parse_hex_reference(temp, ref);
+	if (ref_len < 0) {
+		return -1;
+	}
+
+	return ref_len;
+}
+
+static int read_root_ref_from_stdin(unsigned char *ref) {
+	const int fd = fileno(stdin);
+	int result;
+	if (isatty(fd)) {
+		result = read_root_ref_from_tty(fd, ref);
+	} else {
+		result = read_root_ref_from_pipe(fd, ref); // _or_regular_file_or_whatever
+	}
+	return result;
+}
 
 int do_help(int argc, char *argv[]) {
 	fprintf(stdout, "Usage: %s [--help] <command> [<args>]\n", argv[0]);
@@ -217,6 +330,7 @@ int do_mount(int argc, char *argv[], int idx) {
 	};
 
 	int ref_len = 0;
+	// TODO: maybe put ref in locked memory?
 	unsigned char ref[MAX_REF_SIZE];
 
 	index_t index;
@@ -267,6 +381,15 @@ int do_mount(int argc, char *argv[], int idx) {
 		index_free(&index);
 		return do_help_mount(argc, argv);
 	}
+
+	if (!ref_len) {
+		ref_len = read_root_ref_from_stdin(ref);
+		if (ref_len < 0) {
+			index_free(&index);
+			return 1;
+		}
+	}
+	close(fileno(stdin));
 
 	size_t blksize = 0;
 	for (size_t i = 0; i < index.num_ondiskidx; i++) {

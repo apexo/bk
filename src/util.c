@@ -4,10 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <block.h>
+
 #include "types.h"
 #include "index.h"
 
-int _normalize_name(char *name) {
+static int _normalize_name(char *name) {
 	int name_len = strlen(name);
 
 	if (name_len >= 4 && !memcmp(name + name_len - 4, ".idx", 4)) {
@@ -135,7 +137,7 @@ int close_outputs(index_t *index, int idx_fd, char *name, int fatal_error) {
 	return rc;
 }
 
-int _hex_decode_nib(char c) {
+static int _hex_decode_nib(char c) {
 	if ('0' <= c && c <= '9') {
 		return c - '0';
 	} else if ('a' <= c && c <= 'f') {
@@ -164,6 +166,10 @@ int parse_hex_reference(const char *hexref, unsigned char *ref) {
 		}
 		hexref += 2;
 		ref[ref_len++] = (n1 << 4) | n2;
+	}
+
+	if (block_ref_check(ref, ref_len)) {
+		return -1;
 	}
 
 	return ref_len;
