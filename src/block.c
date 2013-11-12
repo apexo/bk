@@ -51,21 +51,24 @@ int block_init(block_t *block, size_t blksize) {
 	block->temp0 = malloc(blksize);
 	if (!block->temp0) {
 		perror("out of memory");
-		block_free(block);
+		free(block->data[0]);
 		return -1;
 	}
 
 	block->temp1 = malloc(LZ4_compressBound(blksize));
 	if (!block->temp1) {
 		perror("out of memory");
-		block_free(block);
+		free(block->temp0);
+		free(block->data[0]);
 		return -1;
 	}
 
 	block->temp2 = malloc(blksize);
 	if (!block->temp2) {
 		perror("out of memory");
-		block_free(block);
+		free(block->temp1);
+		free(block->temp0);
+		free(block->data[0]);
 		return -1;
 	}
 	return 0;
@@ -78,18 +81,9 @@ void block_free(block_t *block) {
 			block->data[i] = NULL;
 		}
 	}
-	if (block->temp0) {
-		free(block->temp0);
-		block->temp0 = NULL;
-	}
-	if (block->temp1) {
-		free(block->temp1);
-		block->temp1 = NULL;
-	}
-	if (block->temp2) {
-		free(block->temp2);
-		block->temp2 = NULL;
-	}
+	free(block->temp0);
+	free(block->temp1);
+	free(block->temp2);
 }
 
 static void _block_hash(index_t *index, const unsigned char *data, size_t n, block_key_t encryption_key) {
