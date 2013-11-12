@@ -292,12 +292,43 @@ static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
 	}
 }
 
+static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
+	size_t cache_index;
+	block_t *block = block_cache_get(&block_cache, &inode_cache, block_index, ino, 0, &cache_index);
+
+	if (!block) {
+		fprintf(stderr, "(in bk_ll_readlink) block_cache_get failed\n");
+		fuse_reply_err(req, ENODEV);
+		return;
+	}
+
+	const ssize_t n = block_read(block, block_index, block->temp0, block->blksize);
+
+	if (n < 0) {
+		fprintf(stderr, "(in bk_ll_readlink) block_read failed\n");
+		fuse_reply_err(req, EIO);
+		return;
+	}
+
+	if (n >= block->blksize) {
+		fprintf(stderr, "(in bk_ll_readlink) link too long\n");
+		fuse_reply_err(req, ENAMETOOLONG);
+		return;
+	}
+
+	block->temp0[n] = 0;
+
+	fuse_reply_readlink(req, (char*)block->temp0);
+}
+
+
 static struct fuse_lowlevel_ops bk_ll_oper = {
 	.lookup	= bk_ll_lookup,
 	.getattr = bk_ll_getattr,
 	.readdir = bk_ll_readdir,
 	.open = bk_ll_open,
 	.read = bk_ll_read,
+	.readlink = bk_ll_readlink,
 };
 
 int fuse_main(index_t *index, const unsigned char *ref, int ref_len, size_t blksize, int argc, char *argv[]) {
