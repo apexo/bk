@@ -10,11 +10,14 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 
 #include "types.h"
 #include "index.h"
 
 void block_free(block_t *block);
+
+#define ALIGN 128
 
 int blksize_check(size_t blksize) {
 	if (blksize < MIN_BLOCK_SIZE) {
@@ -32,6 +35,124 @@ int blksize_check(size_t blksize) {
 	return 0;
 }
 
+static int _safe_add(ssize_t *accum, ssize_t *limit, ssize_t value) {
+	if (value < 0 || value > *limit) {
+		fprintf(stderr, "blksize too large\n");
+		return -1;
+	}
+	*limit -= value;
+	*accum += value;
+	return 0;
+}
+
+/*
+ * dynamically calculate the amount of memory we allocate for indirection;
+ * we don't need 5 full indirection blocks for 4 MiByte blksize
+ */
+static void _set_limits(block_t *block) {
+	const off_t filesize_limit = 9223372036854775807L; // 2**63-1, we should be compiling with FILE_OFFSET_BITS=64 for fuse, anyway, so this should make sense
+	const size_t blksize = block->blksize;
+	const off_t inline_blocks = INLINE_THRESHOLD / BLOCK_KEY_SIZE;
+	const off_t block_ref_limit = blksize / BLOCK_KEY_SIZE;
+	off_t blocks = (filesize_limit / blksize) + 1;
+
+
+	block->limit[0] = filesize_limit > blksize ? blksize : filesize_limit;
+	for (size_t i = 1; i <= MAX_INDIRECTION; i++) {
+		if (i == MAX_INDIRECTION && blocks > inline_blocks) {
+			// we cannot store the maximal file size with the given block size
+			// but with the minimum block size of 4kiByte, the maximal file size is 40 GiByte
+			// for 8kiByte, it is already 640 GiByte, which should be enough for everybody ;-)
+			block->limit[i] = inline_blocks * BLOCK_KEY_SIZE;
+		} else if (blocks >= block_ref_limit) {
+			block->limit[i] = blksize;
+		} else {
+			block->limit[i] = blocks * BLOCK_KEY_SIZE;
+		}
+		if (blocks <= inline_blocks) {
+			blocks = 0;
+		} else {
+			blocks /= block_ref_limit;
+		}
+	}
+}
+
+static ssize_t _get_locked_size(block_t *block, long *page_size_ret) {
+	const size_t blksize = block->blksize;
+	ssize_t limit = SSIZE_MAX;
+	ssize_t locked_bytes = 0;
+
+	long page_size = sysconf(_SC_PAGESIZE);
+	if (page_size < 1) {
+		perror("error querying page size");
+		return -1;
+	}
+
+	// temp0
+	if (_safe_add(&locked_bytes, &limit, blksize)) { return -1; }
+
+	// temp1 + align
+	if (_safe_add(&locked_bytes, &limit, LZ4_compressBound(blksize))) { return -1; }
+	if (_safe_add(&locked_bytes, &limit, (size_t)(-locked_bytes)%ALIGN)) { return -1; }
+
+	// data + align
+	for (size_t i = 0; i <= MAX_INDIRECTION; i++) {
+		if (block->limit[i]) {
+			if (_safe_add(&locked_bytes, &limit, block->limit[i])) { return -1; }
+			if (_safe_add(&locked_bytes, &limit, (size_t)(-locked_bytes)%ALIGN)) { return -1; }
+		}
+	}
+
+	// fill to page_size
+	if (_safe_add(&locked_bytes, &limit, (size_t)(-locked_bytes)%page_size)) { return -1; }
+
+	if (page_size_ret) {
+		*page_size_ret = page_size;
+	}
+
+	return locked_bytes;
+}
+
+static int _block_allocate_locked_mem(block_t *block) {
+	size_t blksize = block->blksize;
+
+	_set_limits(block);
+
+	long page_size;
+	ssize_t locked_bytes = _get_locked_size(block, &page_size);
+	if (locked_bytes < 0) {
+		fprintf(stderr, "_get_locked_size failed\n");
+		return -1;
+	}
+
+	unsigned char *locked_mem = mmap(NULL, locked_bytes, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_LOCKED | MAP_PRIVATE, -1, 0);
+	if (!locked_mem) {
+		perror("error allocating locked memory");
+		fprintf(stderr, "failed to mmap %zd bytes of locked memory\n", locked_bytes);
+		return -1;
+	}
+
+	ssize_t ofs = 0;
+
+	block->temp0 = locked_mem;
+	ofs += blksize;
+
+	block->temp1 = locked_mem + ofs;
+	ofs += LZ4_compressBound(blksize);
+	ofs += (size_t)(-ofs) % ALIGN;
+
+	for (size_t i = 0; i <= MAX_INDIRECTION; i++) {
+		if (block->limit[i]) {
+			block->data[i] = locked_mem + ofs;
+			ofs += block->limit[i];
+			ofs += (size_t)(-ofs) % ALIGN;
+		}
+	}
+	assert(ofs + (size_t)(-ofs)%page_size == locked_bytes);
+
+	return 0;
+}
+
 int block_init(block_t *block, size_t blksize) {
 	memset(block, 0, sizeof(block_t));
 
@@ -42,47 +163,26 @@ int block_init(block_t *block, size_t blksize) {
 
 	block->blksize = blksize;
 
-	block->data[0] = malloc(blksize);
-	if (!block->data[0]) {
-		perror("out of memory");
-		return -1;
-	}
-
-	block->temp0 = malloc(blksize);
-	if (!block->temp0) {
-		perror("out of memory");
-		free(block->data[0]);
-		return -1;
-	}
-
-	block->temp1 = malloc(LZ4_compressBound(blksize));
-	if (!block->temp1) {
-		perror("out of memory");
-		free(block->temp0);
-		free(block->data[0]);
-		return -1;
-	}
-
 	block->temp2 = malloc(blksize);
 	if (!block->temp2) {
 		perror("out of memory");
-		free(block->temp1);
-		free(block->temp0);
-		free(block->data[0]);
+		return -1;
+	}
+
+	if (_block_allocate_locked_mem(block)) {
+		fprintf(stderr, "_block_allocate_locked_mem failed\n");
+		free(block->temp2);
 		return -1;
 	}
 	return 0;
 }
 
 void block_free(block_t *block) {
-	for (size_t i = 0; i <= MAX_INDIRECTION; i++) {
-		if (block->data[i]) {
-			free(block->data[i]);
-			block->data[i] = NULL;
-		}
+	ssize_t locked_bytes = _get_locked_size(block, NULL);
+	assert(locked_bytes > 0);
+	if (munmap(block->temp0, locked_bytes) < 0) {
+		perror("(in block_free) munmap failed");
 	}
-	free(block->temp0);
-	free(block->temp1);
 	free(block->temp2);
 }
 

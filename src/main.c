@@ -4,6 +4,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 
 #include "types.h"
 #include "index.h"
@@ -29,11 +30,12 @@ int do_help(int argc, char *argv[]) {
 int do_help_backup(int argc, char *argv[]) {
 	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
 	fprintf(stdout, "\n");
-	fprintf(stdout, "   -v             Verbose output. Print names of files as they are being backed up.\n");
-	fprintf(stdout, "   -n,--no-act    Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
-	fprintf(stdout, "   --xdev         Do not descend into directories on other filesystems.\n");
-	fprintf(stdout, "   -E,--exclude   Exclude files/directories. E.g.: home/*/.cache, **/.*.swp\n");
-	fprintf(stdout, "   -I,--include   Include files/directories.\n");
+	fprintf(stdout, "   -v                      Verbose output. Print names of files as they are being backed up.\n");
+	fprintf(stdout, "   -n,--no-act             Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
+	fprintf(stdout, "   --xdev                  Do not descend into directories on other filesystems.\n");
+	fprintf(stdout, "   -E,--exclude <pattern>  Exclude files/directories. E.g.: home/*/.cache, **/.*.swp\n");
+	fprintf(stdout, "   -I,--include <pattern>  Include files/directories.\n");
+	fprintf(stdout, "   --blksize <n>           Set block size; valid values for n range from 0 (4 KiByte) to 19 (2 GiByte); 4 (64 kiByte) is the default\n");
 	return 1;
 }
 
@@ -51,6 +53,7 @@ int do_backup(int argc, char *argv[], int idx) {
 		{"xdev",    no_argument,       0, 0 },
 		{"exclude", required_argument, 0, 0 },
 		{"include", required_argument, 0, 0 },
+		{"blksize", required_argument, 0, 0 },
 		{0,         0,                 0, 0 }
 	};
 
@@ -67,7 +70,7 @@ int do_backup(int argc, char *argv[], int idx) {
 		return 1;
 	}
 
-	size_t block_size = DEFAULT_BLOCK_SIZE;
+	size_t blksize = DEFAULT_BLOCK_SIZE;
 	char *target = NULL;
 	char *path = NULL;
 
@@ -103,6 +106,16 @@ int do_backup(int argc, char *argv[], int idx) {
 				return 1;
 			}
 			continue;
+		}
+
+		if (!c && option_index == 4) {
+			char *endptr;
+			long int v = strtol(optarg, &endptr, 10);
+			if (*endptr || v == LONG_MIN || v == LONG_MAX || v < 0 || v > 19) {
+				fprintf(stderr, "illegal blksize, must be 0 <= x <= 19: %s\n", optarg);
+				return 1;
+			}
+			blksize = 4096 << v;
 		}
 
 		if (c == 1) {
@@ -141,7 +154,7 @@ int do_backup(int argc, char *argv[], int idx) {
 
 	block_stack_t bs;
 
-	if (block_stack_init(&bs, block_size, 100)) {
+	if (block_stack_init(&bs, blksize, 100)) {
 		fprintf(stderr, "block_stack_init failed\n");
 		return 1;
 	}
@@ -170,7 +183,7 @@ int do_backup(int argc, char *argv[], int idx) {
 	block_stack_free(&bs);
 
 	if (!args.list_only) {
-		if (index_write(&index, idx_fd, block_size)) {
+		if (index_write(&index, idx_fd, blksize)) {
 			fprintf(stderr, "index_write failed\n");
 			if (close_outputs(&index, idx_fd, target, 1)) {
 				fprintf(stderr, "close_outputs failed\n");

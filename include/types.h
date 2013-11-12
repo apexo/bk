@@ -114,9 +114,10 @@ typedef struct block {
 	size_t indirection;
 	size_t len[MAX_INDIRECTION + 1];
 	size_t idx[MAX_INDIRECTION + 1];
-	unsigned char *data[MAX_INDIRECTION + 1];
-	unsigned char *temp0; /* read buffer, size bytes */
-	unsigned char *temp1; /* compression buffer, LZ4_compressBound(size) bytes */
+	size_t limit[MAX_INDIRECTION + 1];
+	unsigned char *data[MAX_INDIRECTION + 1]; /* indirection buffer (locked) */
+	unsigned char *temp0; /* user buffer, size bytes (locked) */
+	unsigned char *temp1; /* compression buffer, LZ4_compressBound(size) bytes (locked) */
 	unsigned char *temp2; /* encryption buffer, size bytes */
 	uint64_t raw_bytes;
 	uint64_t allocated_bytes;
