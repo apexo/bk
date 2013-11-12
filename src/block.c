@@ -14,6 +14,7 @@
 
 #include "types.h"
 #include "index.h"
+#include "block.h"
 
 void block_free(block_t *block);
 
@@ -291,13 +292,15 @@ static int _block_dedup(block_t *block, index_t *index, const unsigned char *blo
 	file_offset_t file_offset;
 	block_size_t temp_block_size, compressed_block_size;
 	block_key_t storage_key;
-	int data_fd;
-	uint32_t blksize;
 
 	_block_hash(index, block_data, block_size, encryption_key);
 	_block_hash2(index, encryption_key, storage_key);
 
-	if (index_lookup(index, storage_key, &data_fd, &file_offset, &temp_block_size, &compressed_block_size, &blksize)) {
+	ondiskidx_t *ondiskidx;
+
+	// TODO: update stats & used bitmap
+
+	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
 		const unsigned char* compressed_data = _block_compress(block_data, block_size, block->temp1, &compressed_block_size);
 		if (_block_crypt(compressed_data, compressed_block_size, block->temp2, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
@@ -460,9 +463,18 @@ static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, 
 
 	_block_hash2(index, encryption_key, storage_key);
 
-	if (index_lookup(index, storage_key, &data_fd, &file_offset, &block_size, &compressed_block_size, &block->idx_blksize)) {
+	ondiskidx_t *ondiskidx;
+	if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
 		fprintf(stderr, "index_lookup failed\n");
 		return -1;
+	}
+
+	if (ondiskidx) {
+		block->idx_blksize = ondiskidx->blksize;
+		data_fd = ondiskidx->data_fd;
+	} else {
+		block->idx_blksize = index->blksize;
+		data_fd = index->data_fd;
 	}
 
 	assert(block->blksize >= block->idx_blksize);

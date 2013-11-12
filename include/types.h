@@ -15,34 +15,50 @@
 #define MAX_REF_SIZE (2 + INLINE_THRESHOLD)
 
 
-//typedef struct { unsigned char key[BLOCK_KEY_SIZE]; } keyx_t;
 typedef unsigned char block_key_t[BLOCK_KEY_SIZE];
 typedef uint64_t file_offset_t;
 typedef uint32_t block_size_t;
 
 #define ENTRY_SIZE (sizeof(block_key_t) + sizeof(file_offset_t) + sizeof(block_size_t) + sizeof(block_size_t))
-#define PAGE_ENTRIES_SIZE (PAGE_SIZE - sizeof(index_page_header_t))
-#define ENTRIES_PER_PAGE (PAGE_ENTRIES_SIZE / ENTRY_SIZE)
-#define PAGE_FILL_BYTES (PAGE_ENTRIES_SIZE - ENTRIES_PER_PAGE * ENTRY_SIZE)
+#define ENTRIES_PER_PAGE (PAGE_SIZE / ENTRY_SIZE)
+#define PAGE_FILL_BYTES (PAGE_SIZE - ENTRIES_PER_PAGE * ENTRY_SIZE)
 
-#define MAGIC "BK.IDX"
+#define MAX_REFERENCED_INDICES 124
 
-typedef struct index_page_header {
-	unsigned char magic[7];
-	unsigned char num_entries;
+#define MAGIC "BK.IDX\0"
+#define VERSION 1
+
+typedef struct index_header {
+	unsigned char magic[8];
+
+	// all numbers are in network byte order (big endian)
+	uint32_t version;
 	uint32_t blksize;
-} index_page_header_t;
+	uint64_t num_entries;
+	char reserved[8];
+
+	uint64_t total_blocks;
+	uint64_t total_bytes;
+	uint64_t dedup_blocks;
+	uint64_t dedup_bytes;
+	uint64_t dedup_compressed_bytes;
+	uint64_t internal_blocks;
+	uint64_t internal_bytes;
+	uint64_t internal_compressed_bytes;
+
+	block_key_t referenced_indices[MAX_REFERENCED_INDICES];
+	block_key_t index_hash;
+} index_header_t;
 
 typedef struct index_page {
-	index_page_header_t header;
-	unsigned char fill[PAGE_FILL_BYTES];
-
 	block_key_t key[ENTRIES_PER_PAGE];
 
 	/* these 3 fields are in network byte order (big endian) */
 	file_offset_t file_offset[ENTRIES_PER_PAGE];
 	block_size_t block_size[ENTRIES_PER_PAGE];
 	block_size_t compressed_block_size[ENTRIES_PER_PAGE];
+
+	unsigned char fill[PAGE_FILL_BYTES];
 } index_page_t;
 
 typedef struct index_range {
@@ -50,6 +66,18 @@ typedef struct index_range {
 	size_t limit;
 	index_page_t *pages;
 } index_range_t;
+
+typedef struct ondiskidx {
+	index_range_t range;
+	size_t size;
+	const index_header_t *header;
+	int data_fd;
+	block_size_t blksize;
+
+	// bitmap, 1 bit per entry; starts at 0 and is set to 1 once referenced;
+	// mostly for statistical purposes
+	uint8_t *used;
+} ondiskidx_t;
 
 typedef struct dentry {
 	uint64_t ino;     /* inode number (synthetic) */
@@ -94,18 +122,19 @@ typedef struct inode_cache {
 } inode_cache_t;
 
 typedef struct index {
+	block_size_t blksize;
 	int data_fd;
 	size_t num_workidx;
 	index_range_t *workidx;
 
 	size_t num_ondiskidx;
-	int *ondiskidx_data_fd;
-	index_range_t *ondiskidx;
-	size_t *ondiskidx_blksize;
+	ondiskidx_t *ondiskidx;
 
 	SHA256_CTX encryption_key_context;
 	SHA256_CTX storage_key_context;
 	uint64_t next_ino;
+
+	index_header_t header;
 } index_t;
 
 typedef struct block {

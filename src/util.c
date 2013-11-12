@@ -49,7 +49,7 @@ int add_ondiskidx_by_name(index_t *index, char *name, int idx_only) {
 
 	free(name_temp);
 
-	if (index_add_ondiskidx(index, ref_idx_fd, ref_data_fd)) {
+	if (index_ondiskidx_add(index, ref_idx_fd, ref_data_fd)) {
 		close(ref_idx_fd);
 		close(ref_data_fd);
 		fprintf(stderr, "error adding index %s\n", name);

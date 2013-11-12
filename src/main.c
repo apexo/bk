@@ -65,7 +65,7 @@ int do_backup(int argc, char *argv[], int idx) {
 	}
 	index_t index;
 
-	if (index_init(&index, (const unsigned char*)"SALT", 4)) {
+	if (index_init(&index, 0, (const unsigned char*)"SALT", 4)) {
 		fprintf(stderr, "index_init failed\n");
 		return 1;
 	}
@@ -137,6 +137,11 @@ int do_backup(int argc, char *argv[], int idx) {
 		}
 	}
 
+	if (index_set_blksize(&index, blksize)) {
+		fprintf(stderr, "index_set_blksize failed\n");
+		return 1;
+	}
+
 	if (!path) {
 		fprintf(stderr, "path missing\n");
 		return do_help_backup(argc, argv);
@@ -183,7 +188,7 @@ int do_backup(int argc, char *argv[], int idx) {
 	block_stack_free(&bs);
 
 	if (!args.list_only) {
-		if (index_write(&index, idx_fd, blksize)) {
+		if (index_write(&index, idx_fd)) {
 			fprintf(stderr, "index_write failed\n");
 			if (close_outputs(&index, idx_fd, target, 1)) {
 				fprintf(stderr, "close_outputs failed\n");
@@ -216,7 +221,7 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	index_t index;
 
-	if (index_init(&index, (const unsigned char*)"SALT", 4)) {
+	if (index_init(&index, 1, NULL, 0)) {
 		fprintf(stderr, "index_init failed\n");
 		return 1;
 	}
@@ -263,8 +268,8 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	size_t blksize = 0;
 	for (size_t i = 0; i < index.num_ondiskidx; i++) {
-		if (index.ondiskidx_blksize[i] > blksize) {
-			blksize = index.ondiskidx_blksize[i];
+		if (index.ondiskidx[i].blksize > blksize) {
+			blksize = index.ondiskidx[i].blksize;
 		}
 	}
 

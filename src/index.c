@@ -10,11 +10,22 @@
 
 #include "types.h"
 #include "block.h"
+#include "index.h"
 
 int _index_workidx_grow(index_t *index, size_t limit);
 
-int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
+int index_init(index_t *index, int readonly, const unsigned char *salt, size_t salt_len) {
+	assert(sizeof(index_header_t) == PAGE_SIZE);
+	assert(sizeof(index_page_t) == PAGE_SIZE);
+
 	memset(index, 0, sizeof(index_t));
+
+	SHA256_Init(&index->storage_key_context);
+
+	if (readonly) {
+		return 0;
+	}
+
 	index->next_ino = 2; // in FUSE, 0 is invalid and 1 is reserved for the root
 	if (_index_workidx_grow(index, 1)) {
 		return -1;
@@ -24,40 +35,53 @@ int index_init(index_t *index, const unsigned char *salt, size_t salt_len) {
 	}
 	SHA256_Init(&index->encryption_key_context);
 	SHA256_Update(&index->encryption_key_context, salt, salt_len);
-	SHA256_Init(&index->storage_key_context);
+
+	memcpy(index->header.magic, MAGIC, strlen(MAGIC) + 1);
+	index->header.version = be32toh(VERSION);
 	return 0;
 }
 
-int index_free(index_t *index) {
-	for (size_t i = 0; i < index->num_ondiskidx; i++) {
-		const size_t num_pages = (index->ondiskidx[i].limit + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
-
-		if (munmap(index->ondiskidx[i].pages, num_pages * PAGE_SIZE)) {
-			perror("error unmapping index");
-			return -1;
-		}
+int index_set_blksize(index_t *index, block_size_t blksize) {
+	if (blksize_check(blksize)) {
+		fprintf(stderr, "illegal blksize\n");
+		return -1;
 	}
-
-	index->ondiskidx = (index_range_t*)realloc(index->ondiskidx, 0);
-	index->ondiskidx_data_fd = (int*)realloc(index->ondiskidx_data_fd, 0);
-	index->num_ondiskidx = 0;
-
-	for (size_t i = 0; i < index->num_workidx; i++) {
-		free((void*)index->workidx[i].pages);
-	}
-
-	index->workidx = (index_range_t*)realloc(index->workidx, 0);
-	index->data_fd = 0;
-	index->num_workidx = 0;
-
+	index->blksize = blksize;
+	index->header.blksize = be32toh(blksize);
 	return 0;
 }
 
-int index_add_ondiskidx(index_t *index, int index_fd, int data_fd) {
-	const size_t nr = index->num_ondiskidx;
+
+static int _index_ondiskidx_alloc(ondiskidx_t *ondiskidx, size_t num_entries) {
+	memset(ondiskidx, 0, sizeof(ondiskidx_t));
+
+	if (num_entries > SIZE_MAX - 7) {
+		fprintf(stderr, "index too big\n");
+		return -1;
+	}
+	size_t bitmap_size = (num_entries + 7) / 8;
+	uint8_t *bitmap = malloc(bitmap_size);
+	if (!bitmap) {
+		perror("out of memory");
+		return -1;
+	}
+	memset(bitmap, 0, bitmap_size);
+	ondiskidx->used = bitmap;
+	return 0;
+}
+
+int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
+	ondiskidx_t* ondiskidx = realloc(index->ondiskidx, sizeof(ondiskidx_t)*(index->num_ondiskidx+1));
+	if (!ondiskidx) {
+		perror("out of memory");
+		return -1;
+	}
+	index->ondiskidx = ondiskidx;
+	ondiskidx += index->num_ondiskidx;
+
 	const off64_t idx_size = lseek64(index_fd, 0, SEEK_END);
 	if (idx_size == (off64_t)-1) {
-		perror("error seeking to end of index");
+		perror("lseek64 failed");
 		return -1;
 	}
 
@@ -67,30 +91,9 @@ int index_add_ondiskidx(index_t *index, int index_fd, int data_fd) {
 	}
 
 	if (idx_size > SIZE_MAX) {
-		perror("index too large (exceeds SIZE_MAX)");
+		fprintf(stderr, "index too large\n");
 		return -1;
 	}
-
-	int *ondiskidx_data_fd = (int*)realloc(index->ondiskidx_data_fd, (nr + 1) * sizeof(int));
-	if (!ondiskidx_data_fd) {
-		perror("out of memory");
-		return -1;
-	}
-	index->ondiskidx_data_fd = ondiskidx_data_fd;
-
-	index_range_t *ondiskidx = (index_range_t*)realloc(index->ondiskidx, (nr + 1) * sizeof(index_range_t));
-	if (!ondiskidx) {
-		perror("out of memory");
-		return -1;
-	}
-	index->ondiskidx = ondiskidx;
-
-	size_t *ondiskidx_blksize = (size_t*)realloc(index->ondiskidx_blksize, (nr + 1) * sizeof(size_t));
-	if (!ondiskidx_blksize) {
-		perror("out of memory");
-		return -1;
-	}
-	index->ondiskidx_blksize = ondiskidx_blksize;
 
 	void *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, index_fd, 0);
 	if (data == MAP_FAILED) {
@@ -98,27 +101,84 @@ int index_add_ondiskidx(index_t *index, int index_fd, int data_fd) {
 		return -1;
 	}
 
-	ondiskidx_data_fd[nr] = data_fd;
+	const index_header_t *header = (index_header_t*)data;
+	const size_t num_idx_pages = (idx_size - PAGE_SIZE) / PAGE_SIZE;
+	const size_t num_entries = be64toh(header->num_entries);
+	const size_t max_entries = num_idx_pages * ENTRIES_PER_PAGE;
+	const size_t min_entries = max_entries ? max_entries - ENTRIES_PER_PAGE + 1 : 0;
 
-	index_page_t* pages = (index_page_t*)data;
-	const size_t num_full_pages = (idx_size - PAGE_SIZE) / PAGE_SIZE;
-	const index_page_t* last_page = pages + num_full_pages;
-	const size_t num_entries = num_full_pages * ENTRIES_PER_PAGE + last_page->header.num_entries;
-	
-	ondiskidx[nr].pages = pages;
-	ondiskidx[nr].num_entries = num_entries;
-	ondiskidx[nr].limit = num_entries;
+	if (num_entries < min_entries || num_entries > max_entries) {
+		fprintf(stderr, "illegal num_entries: %zd; expected %zd-%zd (based on the index size)\n", num_entries, min_entries, max_entries);
+		goto err;
+	}
 
-	uint32_t blksize = be32toh(pages->header.blksize);
+	const block_size_t blksize = be32toh(header->blksize);
 
 	if (blksize_check(blksize)) {
 		fprintf(stderr, "blksize_check failed (%d)\n", blksize);
-		return -1;
+		goto err;
 	}
 
-	ondiskidx_blksize[nr] = blksize;
+	if (_index_ondiskidx_alloc(ondiskidx, num_entries)) {
+		fprintf(stderr, "_index_ondiskidx_alloc failed\n");
+		goto err;
+	}
+
+	ondiskidx->range.num_entries = num_entries;
+	ondiskidx->range.limit = num_entries;
+	ondiskidx->range.pages = (index_page_t*)(data + PAGE_SIZE);
+	ondiskidx->size = idx_size;
+	ondiskidx->header = header;
+	ondiskidx->data_fd = data_fd;
+	ondiskidx->blksize = blksize;
 
 	index->num_ondiskidx++;
+	return 0;
+
+err:
+	if (munmap(data, idx_size)) {
+		perror("munmap failed");
+	}
+	return -1;
+}
+
+int index_free(index_t *index) {
+	for (size_t i = 0; i < index->num_ondiskidx; i++) {
+		if (munmap((void*)index->ondiskidx[i].header, index->ondiskidx[i].size)) {
+			perror("(in index_free) error unmapping index");
+		}
+
+		free(index->ondiskidx[i].used);
+
+		if (index->ondiskidx[i].data_fd) {
+			if (close(index->ondiskidx[i].data_fd)) {
+				perror("(in index_free) close failed");
+			}
+		}
+	}
+
+	if (index->ondiskidx) {
+		free(index->ondiskidx);
+		index->ondiskidx = NULL;
+	}
+	index->num_ondiskidx = 0;
+
+	for (size_t i = 0; i < index->num_workidx; i++) {
+		free((void*)index->workidx[i].pages);
+	}
+
+	if (index->workidx) {
+		free(index->workidx);
+		index->workidx = NULL;
+	}
+	index->num_workidx = 0;
+
+	if (index->data_fd) {
+		if (close(index->data_fd)) {
+			perror("(in index_free) close failed");
+		}
+		index->data_fd = 0;
+	}
 
 	return 0;
 }
@@ -331,34 +391,72 @@ int _index_range_lookup(index_range_t *range, block_key_t key, size_t *ret_pagen
 	return -1;
 }
 
-int _index_range_write(index_range_t *index, int fd, size_t blksize) {
-	index_page_t *page = index->pages;
-	size_t remaining = index->num_entries;
+#define CHUNK_SIZE (4096*1024)
 
-	if (blksize > UINT32_MAX) {
+int _index_range_write(index_t *index, index_range_t *range, int fd) {
+	if (index->blksize > UINT32_MAX) {
 		fprintf(stderr, "block size out of bounds\n");
 		return -1;
 	}
 
-	while (1) {
-		const size_t n = remaining >= ENTRIES_PER_PAGE ? ENTRIES_PER_PAGE : remaining;
-		memcpy(page->header.magic, MAGIC, strlen(MAGIC) + 1);
-		page->header.num_entries = n;
-		page->header.blksize = htobe32(blksize);
-		const ssize_t bytes_written = write(fd, page, PAGE_SIZE);
-		if (bytes_written < PAGE_SIZE) {
-			perror("error writing index - disk full?");
+	index->header.num_entries = be64toh(range->num_entries);
+	// TODO: add external references
+
+	if (range->num_entries > SIZE_MAX - ENTRIES_PER_PAGE + 1) {
+		fprintf(stderr, "index too big\n");
+		return -1;
+	}
+
+	size_t num_pages = (range->num_entries + ENTRIES_PER_PAGE - 1) / ENTRIES_PER_PAGE;
+
+	if (num_pages > SIZE_MAX / PAGE_SIZE) {
+		fprintf(stderr, "index too big\n");
+		return -1;
+	}
+
+	size_t hdr_size = PAGE_SIZE;
+	char *hdr = (char*)&index->header;
+
+	while (hdr_size) {
+		const ssize_t bytes_written = write(fd, hdr, hdr_size);
+		if (bytes_written < 0) {
+			perror("write failed");
 			return -1;
 		}
-		remaining -= n;
-		if (!remaining) {
-			return 0;
+		if (!bytes_written) {
+			fprintf(stderr, "error writing index - disk full?\n");
+			return -1;
 		}
-		page++;
+		assert(bytes_written <= hdr_size);
+		hdr_size -= bytes_written;
+		hdr += bytes_written;
 	}
+
+	size_t idx_size = num_pages * PAGE_SIZE;
+	char *data = (char*)range->pages;
+
+	while (idx_size) {
+		const size_t chunk = idx_size > CHUNK_SIZE ? CHUNK_SIZE : idx_size;
+		const ssize_t bytes_written = write(fd, data, chunk);
+		if (bytes_written < 0) {
+			perror("write failed");
+			return -1;
+		}
+		if (!bytes_written) {
+			fprintf(stderr, "error writing index - disk full?\n");
+			return -1;
+		}
+		assert(bytes_written <= chunk);
+		idx_size -= bytes_written;
+		data += bytes_written;
+	}
+
+	return 0;
 }
 
-int index_write(index_t *index, int fd, size_t blksize) {
+int index_write(index_t *index, int fd) {
+	assert(!blksize_check(index->blksize));
+
 	index_range_t *workidx = index->workidx;
 	size_t nf = index->num_workidx;
 	size_t the_real_index = 0;
@@ -393,7 +491,7 @@ int index_write(index_t *index, int fd, size_t blksize) {
 	// assert(workidx[the_real_index].num_entries);
 
 	fprintf(stderr, "writing out %zd entries from index %zd\n", workidx[the_real_index].num_entries, the_real_index);
-	if (_index_range_write(workidx + the_real_index, fd, blksize)) {
+	if (_index_range_write(index, workidx + the_real_index, fd)) {
 		perror("error writing index");
 		return -1;
 	}
@@ -401,21 +499,21 @@ int index_write(index_t *index, int fd, size_t blksize) {
 	return 0;
 }
 
-int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size, uint32_t *blksize) {
+int index_lookup(index_t *index, block_key_t key, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size, ondiskidx_t **ondiskidx) {
 	index_page_t *page;
 	size_t pagenum, pageidx;
 
 	for (size_t i = 0; i < index->num_ondiskidx; i++) {
-		if (!_index_range_lookup(index->ondiskidx + i, key, &pagenum, &pageidx)) {
-			*data_fd = index->ondiskidx_data_fd[i];
-			page = index->ondiskidx[i].pages + pagenum;
+		if (!_index_range_lookup(&(index->ondiskidx + i)->range, key, &pagenum, &pageidx)) {
+			*ondiskidx = index->ondiskidx + i;
+			page = index->ondiskidx[i].range.pages + pagenum;
 			goto ok;
 		}
 	}
 
 	for (size_t i = 0; i < index->num_workidx; i++) {
 		if (!_index_range_lookup(index->workidx + i, key, &pagenum, &pageidx)) {
-			*data_fd = index->data_fd;
+			*ondiskidx = NULL;
 			page = index->workidx[i].pages + pagenum;
 			goto ok;
 		}
@@ -427,7 +525,6 @@ int index_lookup(index_t *index, block_key_t key, int *data_fd, file_offset_t *f
 	*file_offset = be64toh(page->file_offset[pageidx]);
 	*block_size = be32toh(page->block_size[pageidx]);
 	*compressed_block_size = be32toh(page->compressed_block_size[pageidx]);
-	*blksize = be32toh(page->header.blksize);
 	return 0;
 }
 
