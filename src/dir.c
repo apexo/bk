@@ -7,6 +7,7 @@
 #include <pwd.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 #include "types.h"
 #include "block_stack.h"
@@ -80,6 +81,10 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 
 	fd = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_PATH);
 	if (fd < 0) {
+		if (errno == ENOENT) {
+			rc = 0;
+			goto cleanup;
+		}
 		perror("openat failed");
 		fprintf(stderr, "openat %d/%s failed\n", dirfd, name);
 		goto cleanup;
@@ -145,6 +150,10 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	if (S_ISREG(buf.st_mode)) {
 		fd2 = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME);
 		if (fd2 < 0) {
+			if (errno == ENOENT) {
+				rc = 0;
+				goto cleanup;
+			}
 			perror("openat failed");
 			fprintf(stderr, "openat %d/%s failed [2]\n", dirfd, name);
 			goto cleanup;
@@ -159,6 +168,10 @@ int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *i
 	} else if (S_ISDIR(buf.st_mode)) {
 		fd2 = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_DIRECTORY);
 		if (fd2 < 0) {
+			if (errno == ENOENT) {
+				rc = 0;
+				goto cleanup;
+			}
 			perror("openat failed");
 			fprintf(stderr, "openat %d/%s failed [2]\n", dirfd, name);
 			goto cleanup;
