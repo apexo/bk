@@ -241,6 +241,8 @@ int do_mount(int argc, char *argv[], int idx) {
 				index_free(&index);
 				return do_help_mount(argc, argv);
 			}
+			// hide ref (from publicly viewable /proc/$$/cmdline)
+			memset(optarg, 'X', strlen(optarg));
 			continue;
 		}
 
