@@ -238,7 +238,7 @@ full:
 	if (idx) {
 		fuse_reply_buf(req, reply, idx);
 	} else {
-		fuse_reply_err(req, ENOSPC);
+		fuse_reply_err(req, ERANGE);
 	}
 
 cleanup:
