@@ -104,7 +104,6 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 }
 
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-	char *name = NULL;
 	//fprintf(stderr, "readdir %zd @ %zd / %zd\n", ino, off, size);
 
 	char *reply = malloc(size);
@@ -169,16 +168,9 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		goto cleanup;
 	}
 
-	size_t ref_len, dnamelen, namelen = 256;
+	size_t ref_len, dnamelen;
 	const unsigned char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
-	name = malloc(namelen);
-
-	if (!name) {
-		perror("(in bk_ll_readdir) out of memory");
-		fuse_reply_err(req, ENOMEM);
-		goto cleanup;
-	}
 
 	ssize_t n;
 
@@ -187,17 +179,6 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		&dname, &dnamelen,
 		&username, &groupname)) > 0) {
 
-		if (dnamelen + 1 > namelen) {
-			namelen = dnamelen + 1;
-			char *name2 = realloc(name, namelen);
-			if (!name2) {
-				perror("(in bk_ll_readdir) out of memory");
-				fuse_reply_err(req, ENOMEM);
-				goto cleanup;
-			}
-			name = name2;
-		}
-
 		const inode_t *inode = inode_cache_add(&inode_cache, ino, dentry, ref, ref_len);
 		if (!inode) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_add failed\n");
@@ -205,13 +186,30 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 			goto cleanup;
 		}
 
-		memcpy(name, dname, dnamelen);
-		name[dnamelen] = 0;
-
 		struct stat stbuf;
 		stat_from_inode(&stbuf, inode);
 		stbuf.st_ino = be64toh(dentry->ino);
-		size_t m = fuse_add_direntry(req, reply + idx, size - idx, name, &stbuf, off + n);
+
+		size_t m;
+		if (n < block->blksize - 1) {
+			// there is at least one more byte in the temp buffer behind dname to store a terminating 0
+			// this will overwrite the first byte of username/grouplen, but those should no longer be of use at this point
+			((char*)dname)[dnamelen] = 0;
+			m = fuse_add_direntry(req, reply + idx, size - idx, (const char*)dname, &stbuf, off + n);
+		} else {
+			// there ain't ...
+			char *name = malloc(dnamelen + 1);
+			if (!name) {
+				perror("(in bk_ll_readdir) out of memory");
+				fuse_reply_err(req, ENOMEM);
+				goto cleanup;
+			}
+			memcpy(name, dname, dnamelen);
+			name[dnamelen] = 0;
+			m = fuse_add_direntry(req, reply + idx, size - idx, name, &stbuf, off + n);
+			free(name);
+		}
+
 		if (m > size - idx) {
 			if (block->idx[0] >= n) {
 				// easy: "unread" dentry and put block back in cache
@@ -244,9 +242,6 @@ full:
 	}
 
 cleanup:
-	if (name) {
-		free(name);
-	}
 	free(reply);
 	return;
 }
