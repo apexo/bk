@@ -11,7 +11,6 @@ ssize_t dir_entry_read(block_t *block, index_t *index,
 	const dentry_t **dentry,
 	const unsigned char **ref, size_t *ref_len,
 	const unsigned char **name, size_t *namelen,
-	const unsigned char **username, size_t *usernamelen,
-	const unsigned char **groupname, size_t *groupnamelen);
+	const unsigned char **username, const unsigned char **groupname);
 
 #endif

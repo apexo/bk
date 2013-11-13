@@ -56,7 +56,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	}
 
 	off_t off = 0;
-	size_t ref_len, dnamelen, usernamelen, groupnamelen, namelen = strlen(name);
+	size_t ref_len, dnamelen, namelen = strlen(name);
 	const unsigned char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
 	struct fuse_entry_param e;
@@ -66,8 +66,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	while ((n = dir_entry_read(block, block_index, &dentry,
 		&ref, &ref_len,
 		&dname, &dnamelen,
-		&username, &usernamelen,
-		&groupname, &groupnamelen)) > 0) {
+		&username, &groupname)) > 0) {
 		off += n;
 
 		if (namelen == dnamelen && !memcmp(name, dname, namelen)) {
@@ -170,7 +169,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		goto cleanup;
 	}
 
-	size_t ref_len, dnamelen, usernamelen, groupnamelen, namelen = 256;
+	size_t ref_len, dnamelen, namelen = 256;
 	const unsigned char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
 	name = malloc(namelen);
@@ -186,8 +185,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	while ((n = dir_entry_read(block, block_index, &dentry,
 		&ref, &ref_len,
 		&dname, &dnamelen,
-		&username, &usernamelen,
-		&groupname, &groupnamelen)) > 0) {
+		&username, &groupname)) > 0) {
 
 		if (dnamelen + 1 > namelen) {
 			namelen = dnamelen + 1;

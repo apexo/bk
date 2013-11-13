@@ -333,8 +333,7 @@ ssize_t dir_entry_read(block_t *block, index_t *index,
 	const dentry_t **dentry,
 	const unsigned char **ref, size_t *ref_len,
 	const unsigned char **name, size_t *namelen,
-	const unsigned char **username, size_t *usernamelen,
-	const unsigned char **groupname, size_t *groupnamelen) {
+	const unsigned char **username, const unsigned char **groupname) {
 
 	dentry_t *dent = (dentry_t*)block->temp0;
 	unsigned char *dref = block->temp0 + sizeof(dentry_t);
@@ -386,9 +385,7 @@ ssize_t dir_entry_read(block_t *block, index_t *index,
 	*name = dref + block_ref_length(dref);
 	*namelen = dnamelen;
 	*username = *name + dnamelen;
-	*usernamelen = dent->usernamelen;
 	*groupname = *username + dent->usernamelen;
-	*groupnamelen = dent->groupnamelen;
 
 	return n;
 }
