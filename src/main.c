@@ -23,6 +23,71 @@
 #define DEFAULT_BLOCK_SIZE 65536
 #define MAX_HEXREF_SIZE ((MAX_REF_SIZE)*2+1)
 
+static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_len, block_size_t *blksize) {
+	const size_t len = ref[0], indir = ref[1];
+
+	if (!indir || len < BLOCK_KEY_SIZE) {
+		// empty reference (?)
+		*blksize = DEFAULT_BLOCK_SIZE;
+		return 0;
+	}
+
+	block_size_t block_size, compressed_block_size;
+	file_offset_t file_offset;
+	ondiskidx_t *ondiskidx;
+
+	block_key_t storage_key;
+	SHA256_CTX ctx;
+	memcpy(&ctx, &(index->storage_key_context), sizeof(SHA256_CTX));
+	SHA256_Update(&ctx, ref + 2, BLOCK_KEY_SIZE);
+	SHA256_Final(storage_key, &ctx);
+
+	if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
+		fprintf(stderr, "error resolving root reference, you either have the wrong reference or you're missing the correct index\n");
+		return -1;
+	}
+
+	assert(ondiskidx);
+
+	*blksize = ondiskidx->blksize;
+
+	int rc = 0;
+
+	for (size_t i = 0; i < MAX_REFERENCED_INDICES; i++) {
+		int zero = 1;
+		for (size_t j = 0; j < BLOCK_KEY_SIZE; j++) {
+			if (ondiskidx->header->referenced_indices[i][j]) {
+				zero = 0;
+				break;
+			}
+		}
+		if (zero) {
+			break;
+		}
+
+		int found = 0;
+		for (size_t j = 0; j < index->num_ondiskidx; j++) {
+			ondiskidx_t *test = index->ondiskidx + j;
+			if (test == ondiskidx) {
+				continue;
+			}
+			if (!memcmp(test->header->index_hash, ondiskidx->header->referenced_indices[i], BLOCK_KEY_SIZE)) {
+				found = 1;
+				break;
+			}
+		}
+
+		if (!found) {
+			rc = 1;
+			char hash[BLOCK_KEY_SIZE * 2 + 1];
+			hex_format(hash, ondiskidx->header->referenced_indices[i], BLOCK_KEY_SIZE);
+			fprintf(stderr, "missing index: %s\n", hash);
+		}
+	}
+
+	return rc;
+}
+
 static int read_root_ref_from_tty(int fd, char* temp, unsigned char *ref) {
 	struct termios termios, termios_org;
 	if (tcgetattr(fd, &termios)) {
@@ -414,13 +479,6 @@ int do_mount(int argc, char *argv[], int idx) {
 	}
 	close(fileno(stdin));
 
-	size_t blksize = 0;
-	for (size_t i = 0; i < index.num_ondiskidx; i++) {
-		if (index.ondiskidx[i].blksize > blksize) {
-			blksize = index.ondiskidx[i].blksize;
-		}
-	}
-
 	char* arg0_a = argv[0];
 	const char* arg0_b = " mount [...] --";
 	size_t arglen = strlen(arg0_a) + strlen(arg0_b) + 1;
@@ -458,6 +516,11 @@ int do_mount(int argc, char *argv[], int idx) {
 		goto out;
 	}
 	f_mempool = 1;
+
+	block_size_t blksize;
+	if (_check_root_reference(&index, ref, ref_len, &blksize)) {
+		goto out;
+	}
 
 	inode_cache_t inode_cache;
 	if (inode_cache_init(&inode_cache, &mempool, ref, ref_len)) {

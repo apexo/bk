@@ -16,6 +16,7 @@
 inode_cache_t *inode_cache;
 block_cache_t block_cache;
 index_t *block_index;
+size_t the_blksize;
 
 static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	memset(stbuf, 0, sizeof(struct stat));
@@ -25,7 +26,7 @@ static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	stbuf->st_gid = inode->gid;
 	stbuf->st_rdev = inode->rdev;
 	stbuf->st_size = inode->size;
-	stbuf->st_blksize = 65536; //inode->blksize; TODO: determine proper blksize from index
+	stbuf->st_blksize = the_blksize;
 	stbuf->st_blocks = inode->blocks;
 	stbuf->st_atime = inode->atime;
 	stbuf->st_mtime = inode->mtime;
@@ -346,6 +347,7 @@ int fuse_main(index_t *index, inode_cache_t *_inode_cache, size_t blksize, int a
 
 	block_index = index;
 	inode_cache = _inode_cache;
+	the_blksize = blksize;
 
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 	struct fuse_chan *ch;
