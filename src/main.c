@@ -23,12 +23,12 @@
 #define DEFAULT_BLOCK_SIZE 65536
 #define MAX_HEXREF_SIZE ((MAX_REF_SIZE)*2+1)
 
-static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_len, block_size_t *blksize) {
+static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_len, ondiskidx_t **ondiskidx_ret) {
 	const size_t len = ref[0], indir = ref[1];
 
 	if (!indir || len < BLOCK_KEY_SIZE) {
 		// empty reference (?)
-		*blksize = DEFAULT_BLOCK_SIZE;
+		*ondiskidx_ret = NULL;
 		return 0;
 	}
 
@@ -48,8 +48,7 @@ static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_
 	}
 
 	assert(ondiskidx);
-
-	*blksize = ondiskidx->blksize;
+	*ondiskidx_ret = ondiskidx;
 
 	int rc = 0;
 
@@ -517,8 +516,8 @@ int do_mount(int argc, char *argv[], int idx) {
 	}
 	f_mempool = 1;
 
-	block_size_t blksize;
-	if (_check_root_reference(&index, ref, ref_len, &blksize)) {
+	ondiskidx_t *ondiskidx;
+	if (_check_root_reference(&index, ref, ref_len, &ondiskidx)) {
 		goto out;
 	}
 
@@ -532,7 +531,7 @@ int do_mount(int argc, char *argv[], int idx) {
 	mempool_free(&mempool_temp);
 	f_mempool_temp = 0;
 
-	rc = fuse_main(&index, &inode_cache, blksize, fuse_argc, fuse_argv);
+	rc = fuse_main(&index, &inode_cache, ondiskidx, fuse_argc, fuse_argv);
 
 out:
 	if (f_inode_cache) { inode_cache_free(&inode_cache); }

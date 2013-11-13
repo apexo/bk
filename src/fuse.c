@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/statvfs.h>
+#include <endian.h>
 
 #include "types.h"
 #include "block_cache.h"
@@ -16,7 +18,7 @@
 inode_cache_t *inode_cache;
 block_cache_t block_cache;
 index_t *block_index;
-size_t the_blksize;
+ondiskidx_t *the_ondiskidx;
 
 static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	memset(stbuf, 0, sizeof(struct stat));
@@ -26,7 +28,7 @@ static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	stbuf->st_gid = inode->gid;
 	stbuf->st_rdev = inode->rdev;
 	stbuf->st_size = inode->size;
-	stbuf->st_blksize = the_blksize;
+	stbuf->st_blksize = the_ondiskidx ? the_ondiskidx->blksize : MIN_BLOCK_SIZE;
 	stbuf->st_blocks = inode->blocks;
 	stbuf->st_atime = inode->atime;
 	stbuf->st_mtime = inode->mtime;
@@ -328,6 +330,20 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 	fuse_reply_readlink(req, (char*)block->temp0);
 }
 
+static void bk_ll_statfs(fuse_req_t req, fuse_ino_t ino) {
+	struct statvfs stbuf;
+	memset(&stbuf, 0, sizeof(struct statvfs));
+	if (the_ondiskidx) {
+		stbuf.f_bsize = the_ondiskidx->blksize;
+		stbuf.f_frsize = the_ondiskidx->blksize;
+		// very crude
+		stbuf.f_blocks = be64toh(the_ondiskidx->header->dedup_compressed_bytes) / the_ondiskidx->blksize;
+	} else {
+		stbuf.f_bsize = MIN_BLOCK_SIZE;
+		stbuf.f_frsize = MIN_BLOCK_SIZE;
+	}
+	fuse_reply_statfs(req, &stbuf);
+}
 
 static struct fuse_lowlevel_ops bk_ll_oper = {
 	.lookup	= bk_ll_lookup,
@@ -336,10 +352,13 @@ static struct fuse_lowlevel_ops bk_ll_oper = {
 	.open = bk_ll_open,
 	.read = bk_ll_read,
 	.readlink = bk_ll_readlink,
+	.statfs = bk_ll_statfs,
 };
 
-int fuse_main(index_t *index, inode_cache_t *_inode_cache, size_t blksize, int argc, char *argv[]) {
-	if (block_cache_init(&block_cache, blksize)) {
+int fuse_main(index_t *index, inode_cache_t *_inode_cache, ondiskidx_t *ondiskidx, int argc, char *argv[]) {
+	the_ondiskidx = ondiskidx;
+
+	if (block_cache_init(&block_cache, ondiskidx ? ondiskidx->blksize : MIN_BLOCK_SIZE)) {
 		fprintf(stderr, "block_cache_init failed\n");
 		inode_cache_free(inode_cache);
 		return 1;
@@ -347,7 +366,6 @@ int fuse_main(index_t *index, inode_cache_t *_inode_cache, size_t blksize, int a
 
 	block_index = index;
 	inode_cache = _inode_cache;
-	the_blksize = blksize;
 
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 	struct fuse_chan *ch;
