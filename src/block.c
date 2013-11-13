@@ -127,7 +127,7 @@ static int _block_allocate_locked_mem(block_t *block) {
 	}
 
 	unsigned char *locked_mem = mmap(NULL, locked_bytes, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_LOCKED | MAP_PRIVATE, -1, 0);
-	if (!locked_mem) {
+	if (locked_mem == MAP_FAILED) {
 		perror("error allocating locked memory");
 		fprintf(stderr, "failed to mmap %zd bytes of locked memory\n", locked_bytes);
 		return -1;
