@@ -328,12 +328,17 @@ int do_backup(int argc, char *argv[], int idx) {
 }
 
 int do_mount(int argc, char *argv[], int idx) {
+	int rc = 1, f_mempool = 0, f_mempool_temp = 0, f_inode_cache = 0, f_index = 0;
+	char **fuse_argv = NULL;
+	char *fuse_args = NULL;
+
 	optind = idx;
 	mempool_t mempool_temp;
 	if (mempool_init(&mempool_temp, sizeof(void*), 1)) {
 		fprintf(stderr, "mempool_init failed\n");
-		return 1;
+		goto out;
 	}
+	f_mempool_temp = 1;
 
 	static struct option long_options[] = {
 		{"root-ref", required_argument, 0, 0 },
@@ -343,17 +348,16 @@ int do_mount(int argc, char *argv[], int idx) {
 	int ref_len = 0;
 	unsigned char *ref = mempool_alloc(&mempool_temp, MAX_REF_SIZE);
 	if (!ref) {
-		mempool_free(&mempool_temp);
 		fprintf(stderr, "mempool_alloc failed\n");
-		return 1;
+		goto out;
 	}
 
 	index_t index;
 	if (index_init(&index, 1, NULL, 0)) {
 		fprintf(stderr, "index_init failed\n");
-		mempool_free(&mempool_temp);
-		return 1;
+		goto out;
 	}
+	f_index = 1;
 
 	char c;
 	int option_index;
@@ -361,16 +365,14 @@ int do_mount(int argc, char *argv[], int idx) {
 		if (c == 'R' || (!c && option_index == 0)) {
 			if (ref_len) {
 				fprintf(stderr, "duplicate root reference\n");
-				mempool_free(&mempool_temp);
-				index_free(&index);
-				return do_help_mount(argc, argv);
+				rc = do_help_mount(argc, argv);
+				goto out;
 			}
 			ref_len = parse_hex_reference(optarg, ref);
 			if (ref_len < 0) {
 				fprintf(stderr, "illegal root reference\n");
-				mempool_free(&mempool_temp);
-				index_free(&index);
-				return do_help_mount(argc, argv);
+				rc = do_help_mount(argc, argv);
+				goto out;
 			}
 			// hide ref (from publicly viewable /proc/$$/cmdline)
 			memset(optarg, 'X', strlen(optarg));
@@ -387,34 +389,27 @@ int do_mount(int argc, char *argv[], int idx) {
 
 			if (add_ondiskidx_by_name(&index, optarg, 0)) {
 				fprintf(stderr, "add_ondiskidx_by_name failed\n");
-				mempool_free(&mempool_temp);
-				index_free(&index);
-				return 1;
+				goto out;
 			}
 		}
 	}
 
 	if (!index.num_ondiskidx) {
 		fprintf(stderr, "at least one index required\n");
-		mempool_free(&mempool_temp);
-		index_free(&index);
-		return do_help_mount(argc, argv);
+		rc = do_help_mount(argc, argv);
+		goto out;
 	}
 
 	if (!ref_len) {
 		char *temp = mempool_alloc(&mempool_temp, MAX_HEXREF_SIZE);
 		if (!temp) {
 			fprintf(stderr, "mempool_alloc failed\n");
-			mempool_free(&mempool_temp);
-			index_free(&index);
-			return 1;
+			goto out;
 		}
 
 		ref_len = read_root_ref_from_stdin(temp, ref);
 		if (ref_len < 0) {
-			mempool_free(&mempool_temp);
-			index_free(&index);
-			return 1;
+			goto out;
 		}
 	}
 	close(fileno(stdin));
@@ -433,20 +428,15 @@ int do_mount(int argc, char *argv[], int idx) {
 		arglen += strlen(argv[i]) + 1;
 	}
 	const int fuse_argc = argc - optind + 1;
-	char **fuse_argv = malloc(sizeof(char*) * fuse_argc);
+	fuse_argv = malloc(sizeof(char*) * fuse_argc);
 	if (!fuse_argv) {
 		perror("out of memory");
-		mempool_free(&mempool_temp);
-		index_free(&index);
-		return 1;
+		goto out;
 	}
-	char *fuse_args = malloc(arglen);
+	fuse_args = malloc(arglen);
 	if (!fuse_argc) {
 		perror("out of memory");
-		mempool_free(&mempool_temp);
-		index_free(&index);
-		free(fuse_argv);
-		return 1;
+		goto out;
 	}
 	char *argpos = fuse_args;
 	fuse_argv[0] = argpos;
@@ -465,31 +455,29 @@ int do_mount(int argc, char *argv[], int idx) {
 	mempool_t mempool;
 	if (mempool_init(&mempool, sizeof(void*), 1)) {
 		fprintf(stderr, "mempool_init failed\n");
-		mempool_free(&mempool_temp);
-		index_free(&index);
-		free(fuse_argv);
-		free(fuse_args);
-		return 1;
+		goto out;
 	}
+	f_mempool = 1;
 
 	inode_cache_t inode_cache;
 	if (inode_cache_init(&inode_cache, &mempool, ref, ref_len)) {
 		fprintf(stderr, "inode_cache_init failed\n");
-		mempool_free(&mempool);
-		mempool_free(&mempool_temp);
-		index_free(&index);
-		free(fuse_argv);
-		free(fuse_args);
-		return 1;
+		goto out;
 	}
+	f_inode_cache = 1;
 
 	mempool_free(&mempool_temp);
-	int rc = fuse_main(&index, &inode_cache, blksize, fuse_argc, fuse_argv);
-	inode_cache_free(&inode_cache);
-	mempool_free(&mempool);
-	index_free(&index);
-	free(fuse_args);
-	free(fuse_argv);
+	f_mempool_temp = 0;
+
+	rc = fuse_main(&index, &inode_cache, blksize, fuse_argc, fuse_argv);
+
+out:
+	if (f_inode_cache) { inode_cache_free(&inode_cache); }
+	if (f_mempool_temp) { mempool_free(&mempool_temp); }
+	if (f_mempool) { mempool_free(&mempool); }
+	if (f_index) { index_free(&index); }
+	if (fuse_args) { free(fuse_args); }
+	if (fuse_argv) { free(fuse_argv); }
 	return rc;
 }
 
