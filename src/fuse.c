@@ -36,7 +36,7 @@ static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
 	const inode_t *inode = inode_cache_lookup(&inode_cache, ino);
 	if (!inode) {
-		fuse_reply_err(req, ENOENT);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -51,7 +51,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	block_t *block = block_cache_get(&block_cache, &inode_cache, block_index, parent, 0, &cache_index);
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_lookup) block_cache_get failed\n");
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -74,7 +74,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 			const inode_t *inode = inode_cache_add(&inode_cache, parent, dentry, ref, ref_len);
 			if (!inode) {
 				fprintf(stderr, "(in bk_ll_lookup) inode_cache_add failed\n");
-				fuse_reply_err(req, ENODEV);
+				fuse_reply_err(req, EIO);
 				return;
 			}
 
@@ -90,7 +90,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	if (n < 0) {
 		fprintf(stderr, "(in bk_ll_lookup) dir_entry_read failed\n");
 		fprintf(stderr, "ino: %zd, name: %s\n", parent, name);
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -120,7 +120,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		self = inode_cache_lookup(&inode_cache, ino);
 		if (!self) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", ino);
-			fuse_reply_err(req, ENODEV);
+			fuse_reply_err(req, EIO);
 			goto cleanup;
 		}
 	} else {
@@ -143,7 +143,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		const inode_t *parent = self->parent_ino == ino ? self : inode_cache_lookup(&inode_cache, self->parent_ino);
 		if (!parent) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", self->parent_ino);
-			fuse_reply_err(req, ENODEV);
+			fuse_reply_err(req, EIO);
 			goto cleanup;
 		}
 		struct stat stbuf;
@@ -164,7 +164,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_readdir) block_cache_get failed\n");
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		goto cleanup;
 	}
 
@@ -182,7 +182,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		const inode_t *inode = inode_cache_add(&inode_cache, ino, dentry, ref, ref_len);
 		if (!inode) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_add failed\n");
-			fuse_reply_err(req, ENODEV);
+			fuse_reply_err(req, EIO);
 			goto cleanup;
 		}
 
@@ -224,7 +224,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 	if (n < 0) {
 		fprintf(stderr, "(in bk_ll_readdir) dir_entry_read failed\n");
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		goto cleanup;
 	}
 
@@ -250,7 +250,7 @@ static void bk_ll_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi
 	const inode_t *inode = inode_cache_lookup(&inode_cache, ino);
 	if (!inode) {
 		fprintf(stderr, "(in bk_ll_open) inode_cache_lookup failed\n");
-		fuse_reply_err(req, ENOENT);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -269,7 +269,7 @@ static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_read) block_cache_get failed\n");
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -295,7 +295,7 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_readlink) block_cache_get failed\n");
-		fuse_reply_err(req, ENODEV);
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
