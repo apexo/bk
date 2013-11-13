@@ -135,6 +135,7 @@ int do_help(int argc, char *argv[]) {
 	fprintf(stdout, "Where command is one of:\n");
 	fprintf(stdout, "   backup   Create backup.\n");
 	fprintf(stdout, "   mount    Mount backup.\n");
+	fprintf(stdout, "   info     Display index information.\n");
 	fprintf(stdout, "\n");
 	fprintf(stdout, "See '%s help <command>' for help on a specific subcommand.\n", argv[0]);
 	return 1;
@@ -155,6 +156,12 @@ int do_help_backup(int argc, char *argv[]) {
 int do_help_mount(int argc, char *argv[]) {
 	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
+	fprintf(stdout, "   -R,--root-ref           The root reference. May also be entered on stdin.\n");
+	return 1;
+}
+
+int do_help_info(int argc, char *argv[]) {
+	fprintf(stdout, "Usage: %s info <index>...\n", argv[0]);
 	return 1;
 }
 
@@ -439,6 +446,64 @@ int do_mount(int argc, char *argv[], int idx) {
 	return rc;
 }
 
+int do_info(int argc, char *argv[], int idx) {
+	index_t index;
+
+	char hash[BLOCK_KEY_SIZE * 2 + 1];
+
+	for (; idx < argc; idx++) {
+		if (index_init(&index, 1, NULL, 0)) {
+			fprintf(stderr, "index_init failed\n");
+			return 1;
+		}
+
+		if (add_ondiskidx_by_name(&index, argv[idx], 0)) {
+			fprintf(stderr, "add_ondiskidx_by_name failed: %s\n", argv[idx]);
+			index_free(&index);
+			continue;
+		}
+		ondiskidx_t *ondiskidx = index.ondiskidx;
+
+		fprintf(stdout, "%s:\n", argv[idx]);
+		hex_format(hash, ondiskidx->header->index_hash, BLOCK_KEY_SIZE);
+		fprintf(stdout, "\tindex hash: %s\n", hash);
+		for (size_t i = 0; i < MAX_REFERENCED_INDICES; i++) {
+			int flag = 0;
+			for (size_t j = 0; j < BLOCK_KEY_SIZE; j++) {
+				if (ondiskidx->header->referenced_indices[i][j]) {
+					flag = 1;
+					break;
+				}
+			}
+			if (!flag) {
+				break;
+			}
+			hex_format(hash, ondiskidx->header->referenced_indices[i], BLOCK_KEY_SIZE);
+			fprintf(stdout, "\treferences index: %s\n", hash);
+		}
+		fprintf(stdout, "\ttotal: %'zd bytes in %'zd blocks\n",
+			be64toh(ondiskidx->header->total_bytes),
+			be64toh(ondiskidx->header->total_blocks));
+		fprintf(stdout, "\tafter deduplication: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+			be64toh(ondiskidx->header->dedup_bytes),
+			be64toh(ondiskidx->header->dedup_blocks),
+			be64toh(ondiskidx->header->dedup_compressed_bytes));
+		fprintf(stdout, "\twritten: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+			be64toh(ondiskidx->header->internal_bytes),
+			be64toh(ondiskidx->header->internal_blocks),
+			be64toh(ondiskidx->header->internal_compressed_bytes));
+		fprintf(stdout, "\texternal references: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+			be64toh(ondiskidx->header->dedup_bytes) - be64toh(ondiskidx->header->internal_bytes),
+			be64toh(ondiskidx->header->dedup_blocks) - be64toh(ondiskidx->header->internal_blocks),
+			be64toh(ondiskidx->header->dedup_compressed_bytes) - be64toh(ondiskidx->header->internal_compressed_bytes
+		));
+
+		index_free(&index);
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[]) {
 	if (argc <= 1) {
 		return do_help(argc, argv);
@@ -448,11 +513,15 @@ int main(int argc, char *argv[]) {
 		return do_backup(argc, argv, 2);
 	} else if (!strcmp(argv[1], "mount")) {
 		return do_mount(argc, argv, 2);
+	} else if (!strcmp(argv[1], "info")) {
+		return do_info(argc, argv, 2);
 	} else if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) {
 		if (argc > 2 && !strcmp(argv[2], "backup")) {
 			return do_help_backup(argc, argv);
 		} else if (argc > 2 && !strcmp(argv[2], "mount")) {
 			return do_help_backup(argc, argv);
+		} else if (argc > 2 && !strcmp(argv[2], "info")) {
+			return do_help_info(argc, argv);
 		} else {
 			return do_help(argc, argv);
 		}

@@ -174,3 +174,19 @@ int parse_hex_reference(const char *hexref, unsigned char *ref) {
 
 	return ref_len;
 }
+
+static char _hex_encode_nib(int v) {
+	if (v < 10) {
+		return v + '0';
+	} else {
+		return v - 10 + 'a';
+	}
+}
+
+void hex_format(char *dst, const unsigned char *value, size_t bytes) {
+	for (; bytes > 0; bytes--) {
+		*(dst++) = _hex_encode_nib((*value) >> 4);
+		*(dst++) = _hex_encode_nib((*(value++)) & 0xF);
+	}
+	*dst = 0;
+}
