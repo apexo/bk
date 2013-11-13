@@ -104,8 +104,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 }
 
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-	//fprintf(stderr, "readdir %zd @ %zd / %zd\n", ino, off, size);
-
+	// TODO: allocate buffer from locked memory and put pointer in per-thread structure
 	char *reply = malloc(size);
 	if (!reply) {
 		perror("(in bk_ll_readdir) out of memory");
@@ -273,20 +272,31 @@ static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
 		return;
 	}
 
-	const ssize_t n = block_read(block, block_index, block->temp0, size);
-
-	if (n < 0) {
-		fprintf(stderr, "(in bk_ll_read) block_read failed\n");
-		fuse_reply_err(req, EIO);
+	// TODO: allocate buffer from locked memory and put pointer in per-thread structure
+	char *reply = malloc(size);
+	if (!reply) {
+		perror("(in bk_ll_read) out of memory");
+		fuse_reply_err(req, ENOMEM);
 		return;
 	}
 
-	if (n) {
-		block_cache_put(&block_cache, cache_index, ino, off + n);
-		fuse_reply_buf(req, (char*)block->temp0, n);
-	} else {
-		fuse_reply_buf(req, NULL, 0);
+	size_t total = 0;
+	ssize_t n;
+
+	while (total < size && (n = block_read(block, block_index, (unsigned char*)reply + total, size - total))) {
+		if (n < 0) {
+			fprintf(stderr, "(in bk_ll_read) block_read failed\n");
+			free(reply);
+			fuse_reply_err(req, EIO);
+			return;
+		}
+
+		total += n;
 	}
+
+	block_cache_put(&block_cache, cache_index, ino, off + total);
+	fuse_reply_buf(req, reply, total);
+	free(reply);
 }
 
 static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
