@@ -329,13 +329,6 @@ static int _block_flush(block_t *block, index_t *index, size_t indir, const unsi
 	}
 
 	if (indir == block->indirection) {
-		if (!block->data[indir+1]) {
-			block->data[indir+1] = malloc(block->blksize);
-			if (!block->data[indir+1]) {
-				perror("out of memory\n");
-				return -1;
-			}
-		}
 		block->indirection++;
 		block->len[indir+1] = 0;
 	}
@@ -451,16 +444,6 @@ int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
 	const size_t len = ref[0], indir = ref[1];
 
 	block->idx_blksize = 0;
-
-	for (size_t i = 1; i <= indir; i++) {
-		if (!block->data[i]) {
-			block->data[i] = malloc(block->blksize);
-			if (!block->data[i]) {
-				perror("out of memory\n");
-				return -1;
-			}
-		}
-	}
 
 	memset(block->len, 0, sizeof(block->len));
 	memset(block->idx, 0, sizeof(block->idx));
