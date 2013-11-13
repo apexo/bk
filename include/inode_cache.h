@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "dir.h"
+#include "mempool.h"
 
 #define INODE_TABLES 79
 
@@ -29,9 +30,10 @@ typedef struct inode  {
 typedef struct inode_cache {
 	size_t size[INODE_TABLES];
 	inode_t **table[INODE_TABLES];
+	mempool_t *mempool;
 } inode_cache_t;
 
-int inode_cache_init(inode_cache_t *cache, const unsigned char *ref, int ref_len);
+int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned char *ref, int ref_len);
 const inode_t *inode_cache_lookup(inode_cache_t *cache, uint64_t ino);
 const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const unsigned char *ref, int ref_len);
 void inode_cache_free(inode_cache_t *cache);

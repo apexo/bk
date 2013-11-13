@@ -9,19 +9,27 @@
 
 #define INODE_ENTRIES_MIN 512
 
-int inode_cache_init(inode_cache_t *cache, const unsigned char *ref, int ref_len) {
+static inode_t *_inode_alloc(mempool_t *mempool, const unsigned char *ref, int ref_len) {
+	inode_t *inode = mempool_alloc(mempool, sizeof(inode_t) + ref_len);
+	if (!inode) {
+		perror("out of memory");
+		return NULL;
+	}
+
+	memset(inode, 0, sizeof(inode_t));
+	inode->ref_len = ref_len;
+	memcpy(&inode->ref, ref, ref_len);
+	return inode;
+}
+
+int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned char *ref, int ref_len) {
 	memset(cache, 0, sizeof(inode_cache_t));
 
-	inode_t *root = malloc(sizeof(inode_t) + ref_len);
-	if (!root) {
-		perror("out of memory");
-		return -1;
-	}
+	cache->mempool = mempool;
 
 	cache->table[0] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*));
 	if (!cache->table[0]) {
 		perror("out of memory");
-		free(root);
 		return -1;
 	}
 	memset(cache->table[0], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
@@ -29,22 +37,27 @@ int inode_cache_init(inode_cache_t *cache, const unsigned char *ref, int ref_len
 	cache->table[1] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*));
 	if (!cache->table[1]) {
 		perror("out of memory");
-		free(root);
 		free(cache->table[0]);
 		cache->table[0] = NULL;
 		return -1;
 	}
 	memset(cache->table[1], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
 
+	inode_t *root = _inode_alloc(mempool, ref, ref_len);
+	if (!root) {
+		fprintf(stderr, "_inode_alloc failed\n");
+		free(cache->table[1]);
+		free(cache->table[0]);
+		cache->table[1] = NULL;
+		cache->table[0] = NULL;
+		return -1;
+	}
+
 	cache->size[0] = INODE_ENTRIES_MIN;
 	cache->size[1] = INODE_ENTRIES_MIN;
 
-	memset(root, 0, sizeof(inode_t));
 	root->parent_ino = 1;
 	root->mode = S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO;
-	root->ref_len = ref_len;
-	memcpy(&(root->ref), ref, ref_len);
-
 	cache->table[0][1] = root;
 
 	return 0;
@@ -92,13 +105,12 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 		return cache->table[table_idx][ino];
 	}
 
-	inode_t *inode = malloc(sizeof(inode_t) + ref_len);
+	inode_t *inode = _inode_alloc(cache->mempool, ref, ref_len);
 	if (!inode) {
-		perror("out of memory");
+		fprintf(stderr, "_inode_alloc failed\n");
 		return NULL;
 	}
 
-	memset(inode, 0, sizeof(inode_t));
 	inode->parent_ino = parent_ino;
 	inode->rdev = be64toh(dentry->rdev);
 	inode->size = be64toh(dentry->size);
@@ -109,8 +121,7 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 	inode->mode = be32toh(dentry->mode);
 	inode->uid = be32toh(dentry->uid); // TODO: translate (with username) to local uid
 	inode->gid = be32toh(dentry->gid); // TODO: translate (with groupname) to local gid
-	inode->ref_len = ref_len;
-	memcpy(&(inode->ref), ref, ref_len);
+
 	cache->table[table_idx][ino] = inode;
 
 	return inode;
@@ -119,11 +130,6 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 void inode_cache_free(inode_cache_t *cache) {
 	for (size_t i = 0; i < INODE_TABLES; i++) {
 		if (cache->table[i]) {
-			for (size_t j = 0; j < cache->size[i]; j++) {
-				if (cache->table[i][j]) {
-					free(cache->table[i][j]);
-				}
-			}
 			free(cache->table[i]);
 		}
 	}

@@ -1,6 +1,6 @@
 .PHONY: debug release
 
-C_SRC=src/index.c src/block.c src/util.c src/block_stack.c src/dir.c src/inode_cache.c src/block_cache.c src/fuse.c src/filter.c src/main.c
+C_SRC=src/index.c src/block.c src/util.c src/block_stack.c src/dir.c src/inode_cache.c src/block_cache.c src/fuse.c src/filter.c src/main.c src/mempool.c
 C_OPTS=-std=c99 -D_FILE_OFFSET_BITS=64 -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE -D_BSD_SOURCE -D__STDC_LIMIT_MACROS -Wall -Werror
 LIBS=-lcrypto -llz4 -lssl -lfuse
 INCLUDE=-Iinclude

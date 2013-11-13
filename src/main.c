@@ -16,14 +16,14 @@
 #include "filter.h"
 #include "util.h"
 #include "fuse.h"
+#include "inode_cache.h"
+#include "mempool.h"
 
 
 #define DEFAULT_BLOCK_SIZE 65536
+#define MAX_HEXREF_SIZE ((MAX_REF_SIZE)*2+1)
 
-static int read_root_ref_from_tty(int fd, unsigned char *ref) {
-	// TODO: maybe put temp in locked memory?
-	char temp[MAX_REF_SIZE * 2 + 1];
-
+static int read_root_ref_from_tty(int fd, char* temp, unsigned char *ref) {
 	struct termios termios, termios_org;
 	if (tcgetattr(fd, &termios)) {
 		perror("tcgetattr failed");
@@ -41,7 +41,7 @@ static int read_root_ref_from_tty(int fd, unsigned char *ref) {
 
 	fprintf(stderr, "root reference: ");
 
-	ssize_t n = read(fd, temp, sizeof(temp));
+	ssize_t n = read(fd, temp, MAX_HEXREF_SIZE);
 
 	fprintf(stderr, "\n");
 
@@ -61,10 +61,10 @@ static int read_root_ref_from_tty(int fd, unsigned char *ref) {
 		return -1;
 	}
 
-	if (n == sizeof(temp) && temp[n - 1] != '\n') {
+	if (n == MAX_HEXREF_SIZE && temp[n - 1] != '\n') {
 		fprintf(stderr, "reference too long\n");
 		while (n == sizeof(temp) && temp[n - 1] != '\n') {
-			n = read(fd, temp, sizeof(temp));
+			n = read(fd, temp, MAX_HEXREF_SIZE);
 			if (n < 0) {
 				perror("read failed");
 			}
@@ -86,10 +86,8 @@ static int read_root_ref_from_tty(int fd, unsigned char *ref) {
 	return ref_len;
 }
 
-static int read_root_ref_from_pipe(int fd, unsigned char *ref) {
-	// TODO: maybe put temp in locked memory?
-	char temp[MAX_REF_SIZE * 2 + 1];
-	memset(temp, 0, sizeof(temp));
+static int read_root_ref_from_pipe(int fd, char* temp, unsigned char *ref) {
+	memset(temp, 0, MAX_HEXREF_SIZE);
 
 	size_t len = 0, n;
 	char chr;
@@ -119,13 +117,13 @@ static int read_root_ref_from_pipe(int fd, unsigned char *ref) {
 	return ref_len;
 }
 
-static int read_root_ref_from_stdin(unsigned char *ref) {
+static int read_root_ref_from_stdin(char *temp, unsigned char *ref) {
 	const int fd = fileno(stdin);
 	int result;
 	if (isatty(fd)) {
-		result = read_root_ref_from_tty(fd, ref);
+		result = read_root_ref_from_tty(fd, temp, ref);
 	} else {
-		result = read_root_ref_from_pipe(fd, ref); // _or_regular_file_or_whatever
+		result = read_root_ref_from_pipe(fd, temp, ref); // _or_regular_file_or_whatever
 	}
 	return result;
 }
@@ -331,6 +329,11 @@ int do_backup(int argc, char *argv[], int idx) {
 
 int do_mount(int argc, char *argv[], int idx) {
 	optind = idx;
+	mempool_t mempool_temp;
+	if (mempool_init(&mempool_temp, sizeof(void*), 1)) {
+		fprintf(stderr, "mempool_init failed\n");
+		return 1;
+	}
 
 	static struct option long_options[] = {
 		{"root-ref", required_argument, 0, 0 },
@@ -338,13 +341,17 @@ int do_mount(int argc, char *argv[], int idx) {
 	};
 
 	int ref_len = 0;
-	// TODO: maybe put ref in locked memory?
-	unsigned char ref[MAX_REF_SIZE];
+	unsigned char *ref = mempool_alloc(&mempool_temp, MAX_REF_SIZE);
+	if (!ref) {
+		mempool_free(&mempool_temp);
+		fprintf(stderr, "mempool_alloc failed\n");
+		return 1;
+	}
 
 	index_t index;
-
 	if (index_init(&index, 1, NULL, 0)) {
 		fprintf(stderr, "index_init failed\n");
+		mempool_free(&mempool_temp);
 		return 1;
 	}
 
@@ -354,12 +361,14 @@ int do_mount(int argc, char *argv[], int idx) {
 		if (c == 'R' || (!c && option_index == 0)) {
 			if (ref_len) {
 				fprintf(stderr, "duplicate root reference\n");
+				mempool_free(&mempool_temp);
 				index_free(&index);
 				return do_help_mount(argc, argv);
 			}
 			ref_len = parse_hex_reference(optarg, ref);
 			if (ref_len < 0) {
 				fprintf(stderr, "illegal root reference\n");
+				mempool_free(&mempool_temp);
 				index_free(&index);
 				return do_help_mount(argc, argv);
 			}
@@ -378,6 +387,7 @@ int do_mount(int argc, char *argv[], int idx) {
 
 			if (add_ondiskidx_by_name(&index, optarg, 0)) {
 				fprintf(stderr, "add_ondiskidx_by_name failed\n");
+				mempool_free(&mempool_temp);
 				index_free(&index);
 				return 1;
 			}
@@ -386,13 +396,23 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	if (!index.num_ondiskidx) {
 		fprintf(stderr, "at least one index required\n");
+		mempool_free(&mempool_temp);
 		index_free(&index);
 		return do_help_mount(argc, argv);
 	}
 
 	if (!ref_len) {
-		ref_len = read_root_ref_from_stdin(ref);
+		char *temp = mempool_alloc(&mempool_temp, MAX_HEXREF_SIZE);
+		if (!temp) {
+			fprintf(stderr, "mempool_alloc failed\n");
+			mempool_free(&mempool_temp);
+			index_free(&index);
+			return 1;
+		}
+
+		ref_len = read_root_ref_from_stdin(temp, ref);
 		if (ref_len < 0) {
+			mempool_free(&mempool_temp);
 			index_free(&index);
 			return 1;
 		}
@@ -416,12 +436,14 @@ int do_mount(int argc, char *argv[], int idx) {
 	char **fuse_argv = malloc(sizeof(char*) * fuse_argc);
 	if (!fuse_argv) {
 		perror("out of memory");
+		mempool_free(&mempool_temp);
 		index_free(&index);
 		return 1;
 	}
 	char *fuse_args = malloc(arglen);
 	if (!fuse_argc) {
 		perror("out of memory");
+		mempool_free(&mempool_temp);
 		index_free(&index);
 		free(fuse_argv);
 		return 1;
@@ -440,7 +462,31 @@ int do_mount(int argc, char *argv[], int idx) {
 	}
 	assert(argpos == fuse_args + arglen);
 
-	int rc = fuse_main(&index, ref, ref_len, blksize, fuse_argc, fuse_argv);
+	mempool_t mempool;
+	if (mempool_init(&mempool, sizeof(void*), 1)) {
+		fprintf(stderr, "mempool_init failed\n");
+		mempool_free(&mempool_temp);
+		index_free(&index);
+		free(fuse_argv);
+		free(fuse_args);
+		return 1;
+	}
+
+	inode_cache_t inode_cache;
+	if (inode_cache_init(&inode_cache, &mempool, ref, ref_len)) {
+		fprintf(stderr, "inode_cache_init failed\n");
+		mempool_free(&mempool);
+		mempool_free(&mempool_temp);
+		index_free(&index);
+		free(fuse_argv);
+		free(fuse_args);
+		return 1;
+	}
+
+	mempool_free(&mempool_temp);
+	int rc = fuse_main(&index, &inode_cache, blksize, fuse_argc, fuse_argv);
+	inode_cache_free(&inode_cache);
+	mempool_free(&mempool);
 	index_free(&index);
 	free(fuse_args);
 	free(fuse_argv);
