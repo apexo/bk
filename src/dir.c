@@ -362,6 +362,10 @@ ssize_t dir_entry_read(block_t *block, index_t *index,
 	size_t dref_len = block_ref_length(dref);
 
 	req = sizeof(dentry_t) + dref_len + dnamelen + dent->usernamelen + dent->groupnamelen;
+	if (req > block->blksize) {
+		fprintf(stderr, "dentry size exceeds block size\n");
+		return -1;
+	}
 	do {
 		ssize_t m = block_read(block, index, block->temp0 + n, req - n);
 		if (m < 0) {
