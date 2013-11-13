@@ -179,6 +179,7 @@ int block_init(block_t *block, size_t blksize) {
 void block_free(block_t *block) {
 	ssize_t locked_bytes = _get_locked_size(block, NULL);
 	assert(locked_bytes > 0);
+	memset(block->temp0, 0, locked_bytes);
 	if (munmap(block->temp0, locked_bytes) < 0) {
 		perror("(in block_free) munmap failed");
 	}
