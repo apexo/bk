@@ -3,8 +3,7 @@
 
 #include <stdint.h>
 
-// dentry_t
-#include "types.h"
+#include "dir.h"
 
 #define INODE_TABLES 79
 

@@ -12,8 +12,6 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
-#include "types.h"
-#include "index.h"
 #include "block.h"
 
 void block_free(block_t *block);
@@ -263,9 +261,9 @@ static int _block_crypt(const unsigned char *src, size_t n, unsigned char *dst, 
 static int _block_data_write(index_t *index, const unsigned char *data, block_key_t storage_key, block_size_t block_size, block_size_t compressed_block_size) {
 	assert(compressed_block_size && compressed_block_size <= block_size);
 
-	off64_t file_offset = lseek64(index->data_fd, 0, SEEK_CUR);
-	if (file_offset == (off64_t)-1) {
-		perror("lseek64 failed");
+	off_t file_offset = lseek(index->data_fd, 0, SEEK_CUR);
+	if (file_offset == (off_t)-1) {
+		perror("lseek failed");
 		return -1;
 	}
 	if (index_add_block(index, storage_key, file_offset, block_size, compressed_block_size)) {
@@ -508,9 +506,9 @@ static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, 
 		return -1;
 	}
 
-	off64_t ofs = lseek64(data_fd, file_offset, SEEK_SET);
-	if (ofs == (off64_t)-1) {
-		perror("lseek64 failed");
+	off_t ofs = lseek(data_fd, file_offset, SEEK_SET);
+	if (ofs == (off_t)-1) {
+		perror("lseek failed");
 		return -1;
 	}
 	ssize_t n = read(data_fd, block->temp2, compressed_block_size);
@@ -651,8 +649,8 @@ static ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t 
 	}
 }
 
-int block_skip(block_t *block, index_t *index, off64_t ofs) {
-	off64_t org_ofs = ofs;
+int block_skip(block_t *block, index_t *index, off_t ofs) {
+	off_t org_ofs = ofs;
 	if (ofs < 0) {
 		fprintf(stderr, "negative offset not supported\n");
 		return -1;

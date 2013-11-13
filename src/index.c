@@ -9,7 +9,6 @@
 #include <string.h>
 #include <openssl/sha.h>
 
-#include "types.h"
 #include "block.h"
 #include "index.h"
 
@@ -85,9 +84,9 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 	index->ondiskidx = ondiskidx;
 	ondiskidx += index->num_ondiskidx;
 
-	const off64_t idx_size = lseek64(index_fd, 0, SEEK_END);
-	if (idx_size == (off64_t)-1) {
-		perror("lseek64 failed");
+	const off_t idx_size = lseek(index_fd, 0, SEEK_END);
+	if (idx_size == (off_t)-1) {
+		perror("lseek failed");
 		return -1;
 	}
 

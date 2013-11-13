@@ -11,11 +11,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "types.h"
-#include "block_stack.h"
-#include "block.h"
-#include "index.h"
-#include "filter.h"
+#include "dir.h"
 
 int _dir_entry_write(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int dirfd, char *name, args_t *args);
 
@@ -53,7 +49,7 @@ int _dir_write_symlink(block_stack_t *bs, size_t depth, block_t *block, index_t 
 }
 
 int _dir_write_dir(block_stack_t *bs, size_t depth, block_t *block, index_t *index, int fd, args_t *args) {
-	off64_t basep = 0;
+	off_t basep = 0;
 	char *buf = (char*)block->temp0;
 	ssize_t n = getdirentries(fd, buf, block->blksize, &basep);
 	while (n > 0) {

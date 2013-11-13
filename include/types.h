@@ -13,22 +13,6 @@ typedef unsigned char block_key_t[BLOCK_KEY_SIZE];
 typedef uint64_t file_offset_t;
 typedef uint32_t block_size_t;
 
-typedef struct dentry {
-	uint64_t ino;     /* inode number (synthetic) */
-	uint64_t rdev;    /* device ID (if special file) */
-	uint64_t size;    /* total size, in bytes */
-	uint64_t blocks;  /* number of 512B blocks allocated */
-	uint64_t atime;   /* time of last access */
-	uint64_t mtime;   /* time of last modification */
-	uint64_t ctime;   /* time of last status change */
-	uint32_t mode;    /* protection */
-	uint32_t uid;     /* user ID of owner */
-	uint32_t gid;     /* group ID of owner */
-	uint16_t namelen;
-	uint8_t usernamelen;
-	uint8_t groupnamelen;
-} dentry_t;
-
 #include "filter.h"
 
 typedef struct args {
