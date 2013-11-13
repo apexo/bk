@@ -72,6 +72,11 @@ static int _index_ondiskidx_alloc(ondiskidx_t *ondiskidx, size_t num_entries) {
 }
 
 int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
+	if (index->num_ondiskidx == MAX_REFERENCED_INDICES) {
+		fprintf(stderr, "you may not reference more than %d external indices\n", MAX_REFERENCED_INDICES);
+		return -1;
+	}
+
 	ondiskidx_t* ondiskidx = realloc(index->ondiskidx, sizeof(ondiskidx_t)*(index->num_ondiskidx+1));
 	if (!ondiskidx) {
 		perror("out of memory");
@@ -408,9 +413,13 @@ static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *re
 #define CHUNK_SIZE (4096*1024)
 
 static void _index_finish_stats(index_t *index) {
+	size_t ref_cnt = 0;
+
 	for (size_t i = 0; i < index->num_ondiskidx; i++) {
 		const ondiskidx_t *ondiskidx = index->ondiskidx + i;
 		const uint8_t *used = ondiskidx->used;
+		int flag = 0;
+
 		for (size_t j = 0; j < ondiskidx->range.num_entries; j++) {
 			if (used[j >> 3] & (128 >> (j & 7))) {
 				const size_t pagenum = j / ENTRIES_PER_PAGE;
@@ -420,21 +429,16 @@ static void _index_finish_stats(index_t *index) {
 				index->header.dedup_blocks++;
 				index->header.dedup_bytes += be32toh(page->block_size[pageidx]);
 				index->header.dedup_compressed_bytes += be32toh(page->compressed_block_size[pageidx]);
+
+				flag = 1;
 			}
 		}
-	}
 
-	fprintf(stderr, "total: %'zd bytes in %'zd blocks\n",
-		index->header.total_bytes, index->header.total_blocks);
-	fprintf(stderr, "after deduplication: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
-		index->header.dedup_bytes, index->header.dedup_blocks, index->header.dedup_compressed_bytes);
-	fprintf(stderr, "written: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
-		index->header.internal_bytes, index->header.internal_blocks, index->header.internal_compressed_bytes);
-	fprintf(stderr, "external references: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
-		index->header.dedup_bytes - index->header.internal_bytes,
-		index->header.dedup_blocks - index->header.internal_blocks,
-		index->header.dedup_compressed_bytes - index->header.internal_compressed_bytes
-	);
+		if (flag) {
+			memcpy(index->header.referenced_indices[ref_cnt++], ondiskidx->header->index_hash, BLOCK_KEY_SIZE);
+			assert(ref_cnt <= MAX_REFERENCED_INDICES);
+		}
+	}
 
 	index->header.total_blocks = be64toh(index->header.total_blocks);
 	index->header.total_bytes = be64toh(index->header.total_bytes);
