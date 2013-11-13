@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <block.h>
+#include <unistd.h>
 
 #include "types.h"
 #include "index.h"

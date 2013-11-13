@@ -8,6 +8,8 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #include "types.h"
 #include "block_stack.h"

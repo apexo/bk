@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <fnmatch.h>
 #include <assert.h>
 #include <string.h>
 
-#include "types.h"
+#include "filter.h"
 
 static int filter_rule_init(filter_rule_t *filter_rule, int include, const char *pattern) {
 	memset(filter_rule, 0, sizeof(filter_rule_t));

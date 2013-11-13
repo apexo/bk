@@ -3,8 +3,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <sys/stat.h>
 
-#include "types.h"
+#include "inode_cache.h"
 
 #define INODE_ENTRIES_MIN 512
 

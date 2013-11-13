@@ -2,8 +2,7 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "types.h"
-#include "block.h"
+#include "block_stack.h"
 
 int block_stack_init(block_stack_t *bs, size_t blksize, size_t recursion_limit) {
 	bs->blksize = blksize;

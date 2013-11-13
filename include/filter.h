@@ -1,7 +1,30 @@
 #ifndef BK_FILTER_H
 #define BK_FILTER_H
 
-#include "types.h"
+typedef struct filter_rule {
+	size_t count;
+	char **path;
+	int include;
+} filter_rule_t;
+
+typedef struct filter_match {
+	size_t capacity;
+	size_t count;
+	filter_rule_t **rules;
+	size_t *idx;
+	int include;
+} filter_match_t;
+
+typedef struct filter {
+	size_t rule_count;
+	filter_rule_t **rules;
+
+	size_t max_depth;
+	size_t depth;
+	filter_match_t *match;
+
+	int flags;
+} filter_t;
 
 int filter_init(filter_t *filter, int flags);
 int filter_rule_add(filter_t *filter, int include, const char *pattern);

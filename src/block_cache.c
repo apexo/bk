@@ -1,9 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "types.h"
-#include "inode_cache.h"
-#include "block.h"
+#include "block_cache.h"
 
 int block_cache_init(block_cache_t *cache, size_t block_size) {
 	cache->next = 0;

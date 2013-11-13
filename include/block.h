@@ -1,12 +1,27 @@
 #ifndef BK_BLOCK_H
 #define BK_BLOCK_H
 
-#ifndef _LARGEFILE64_SOURCE
-#define _LARGEFILE64_SOURCE
-#endif
 #include <fcntl.h>
+#include <stdint.h>
 
-#include "types.h"
+#define MAX_INDIRECTION 4
+
+typedef struct block {
+	size_t blksize;
+	uint32_t idx_blksize;
+	size_t indirection;
+	size_t len[MAX_INDIRECTION + 1];
+	size_t idx[MAX_INDIRECTION + 1];
+	size_t limit[MAX_INDIRECTION + 1];
+	unsigned char *data[MAX_INDIRECTION + 1]; /* indirection buffer (locked) */
+	unsigned char *temp0; /* user buffer, size bytes (locked) */
+	unsigned char *temp1; /* compression buffer, LZ4_compressBound(size) bytes (locked) */
+	unsigned char *temp2; /* encryption buffer, size bytes */
+	uint64_t raw_bytes;
+	uint64_t allocated_bytes;
+} block_t;
+
+#include "index.h"
 
 int block_init(block_t *block, size_t block_size);
 void block_free(block_t *block);

@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/stat.h>
 
 #include "types.h"
 #include "index.h"

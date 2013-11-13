@@ -2,6 +2,8 @@
 #define BK_DIR_H
 
 #include "types.h"
+#include "index.h"
+#include "block_stack.h"
 
 int dir_write(block_stack_t *bs, size_t depth, index_t *index, args_t *args, int fd, unsigned char *ref);
 void dir_test();
