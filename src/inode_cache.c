@@ -63,7 +63,7 @@ int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned ch
 	return 0;
 }
 
-const inode_t* inode_cache_lookup(inode_cache_t *cache, uint64_t ino) {
+inode_t* inode_cache_lookup(inode_cache_t *cache, uint64_t ino) {
 	size_t table_idx = 0;
 	while (cache->size[table_idx] && ino >= cache->size[table_idx]) {
 		ino -= cache->size[table_idx++];

@@ -14,11 +14,22 @@
 #include "block_cache.h"
 #include "block.h"
 #include "dir.h"
+#include "dir_index.h"
+
+
+// allocate from locked memory
+typedef struct {
+	lookup_temp_t d;
+	struct fuse_entry_param e;
+} fuse_lookup_temp_t;
 
 inode_cache_t *inode_cache;
 block_cache_t block_cache;
 index_t *block_index;
 ondiskidx_t *the_ondiskidx;
+dir_index_t dir_index;
+mempool_t *mempool;
+fuse_lookup_temp_t *fuse_lookup_temp;
 
 static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	memset(stbuf, 0, sizeof(struct stat));
@@ -48,61 +59,89 @@ static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info 
 	fuse_reply_attr(req, &stbuf, 86400.0);
 }
 
-static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
+static int _populate_dir_index(fuse_ino_t parent, inode_t *parent_inode) {
 	size_t cache_index;
 	block_t *block = block_cache_get(&block_cache, inode_cache, block_index, parent, 0, &cache_index);
 	if (!block) {
-		fprintf(stderr, "(in bk_ll_lookup) block_cache_get failed\n");
-		fuse_reply_err(req, EIO);
-		return;
+		fprintf(stderr, "block_cache_get failed\n");
+		return -1;
 	}
 
-	off_t off = 0;
-	size_t ref_len, dnamelen, namelen = strlen(name);
+	size_t ref_len, dnamelen;
 	const unsigned char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
-	struct fuse_entry_param e;
-	e.generation = 0;
 
 	ssize_t n;
 	while ((n = dir_entry_read(block, block_index, &dentry,
 		&ref, &ref_len,
 		&dname, &dnamelen,
 		&username, &groupname)) > 0) {
-		off += n;
 
-		if (namelen == dnamelen && !memcmp(name, dname, namelen)) {
-			e.ino = be64toh(dentry->ino);
-			const inode_t *inode = inode_cache_add(inode_cache, parent, dentry, ref, ref_len);
-			if (!inode) {
-				fprintf(stderr, "(in bk_ll_lookup) inode_cache_add failed\n");
-				fuse_reply_err(req, EIO);
-				return;
-			}
+		const inode_t *inode = inode_cache_add(inode_cache, parent, dentry, ref, ref_len);
+		if (!inode) {
+			fprintf(stderr, "inode_cache_add failed\n");
+			return -1;
+		}
 
-			e.generation = 1;
-			stat_from_inode(&e.attr, inode);
-			e.attr.st_ino = e.ino;
-			e.attr_timeout = 86400.0;
-			e.entry_timeout = 86400.0;
-			break;
+		if (dir_index_add(&dir_index, (const char*)dname, dnamelen, be64toh(dentry->ino))) {
+			fprintf(stderr, "dir_index_add failed\n");
+			return -1;
 		}
 	}
 
 	if (n < 0) {
-		fprintf(stderr, "(in bk_ll_lookup) dir_entry_read failed\n");
-		fprintf(stderr, "ino: %zd, name: %s\n", parent, name);
+		fprintf(stderr, "dir_entry_read failed\n");
+		return -1;
+	}
+
+	parent_inode->dir_index = dir_index_merge(&dir_index, mempool);
+	if (!parent_inode->dir_index) {
+		fprintf(stderr, "dir_index_merge failed\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
+	inode_t *parent_inode = inode_cache_lookup(inode_cache, parent);
+	if (!parent_inode) {
+		fprintf(stderr, "(in bk_ll_lookup) inode_cache_lookup failed\n");
 		fuse_reply_err(req, EIO);
 		return;
 	}
 
-	block_cache_put(&block_cache, cache_index, parent, off);
-
-	if (!e.generation) {
-		fuse_reply_err(req, ENOENT);
-	} else {
-		fuse_reply_entry(req, &e);
+	if (!parent_inode->dir_index) {
+		if (_populate_dir_index(parent, parent_inode)) {
+			fprintf(stderr, "(in bk_ll_lookup) _populate_dir_index failed\n");
+			fuse_reply_err(req, EIO);
+			return;
+		}
 	}
+
+	const uint64_t ino = dir_index_range_lookup(parent_inode->dir_index, &fuse_lookup_temp->d, name, strlen(name));
+	if (!ino) {
+		fuse_reply_err(req, ENOENT);
+		return;
+	}
+
+	const inode_t *inode = inode_cache_lookup(inode_cache, ino);
+	if (!inode) {
+		fprintf(stderr, "(in bk_ll_lookup) inode_cache_lookup failed\n");
+		fuse_reply_err(req, EIO);
+		return;
+	}
+
+	struct fuse_entry_param *e = &fuse_lookup_temp->e;
+	e->generation = 1;
+	e->ino = ino;
+	stat_from_inode(&e->attr, inode);
+	e->attr.st_ino = ino;
+	e->attr_timeout = 86400.0;
+	e->entry_timeout = 86400.0;
+	fuse_reply_entry(req, e);
+	memset(e, 0, sizeof(struct fuse_entry_param));
 }
 
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
@@ -360,7 +399,21 @@ int fuse_main(index_t *index, inode_cache_t *_inode_cache, ondiskidx_t *ondiskid
 
 	if (block_cache_init(&block_cache, ondiskidx ? ondiskidx->blksize : MIN_BLOCK_SIZE)) {
 		fprintf(stderr, "block_cache_init failed\n");
-		inode_cache_free(inode_cache);
+		return 1;
+	}
+
+	mempool = _inode_cache->mempool;
+
+	if (dir_index_init(&dir_index, mempool)) {
+		fprintf(stderr, "dir_index_init failed\n");
+		block_cache_free(&block_cache);
+		return 1;
+	}
+
+	if (!(fuse_lookup_temp = mempool_alloc(mempool, sizeof(fuse_lookup_temp_t)))) {
+		fprintf(stderr, "mempool_alloc failed\n");
+		block_cache_free(&block_cache);
+		dir_index_free(&dir_index);
 		return 1;
 	}
 

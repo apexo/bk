@@ -60,7 +60,7 @@ typedef struct ondiskidx {
 	block_size_t blksize;
 
 	// bitmap, 1 bit per entry; starts at 0 and is set to 1 once referenced;
-	// mostly for statistical purposes
+	// mostly for statistical purposes (and to determine which indices are actually referenced)
 	uint8_t *used;
 } ondiskidx_t;
 
