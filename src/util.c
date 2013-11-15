@@ -146,6 +146,7 @@ int close_outputs(index_t *index, int idx_fd, char *name, int fatal_error) {
 		perror("error closing data file");
 		rc = -1;
 	}
+	index->data_fd = -1;
 
 	return rc;
 }
