@@ -451,12 +451,22 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 		return -1;
 	}
 
+#ifdef MULTITHREADED
+	pthread_mutex_t *mutex;
+#endif
+
 	if (ondiskidx) {
 		block->idx_blksize = ondiskidx->blksize;
 		data_fd = ondiskidx->data_fd;
+#ifdef MULTITHREADED
+		mutex = &ondiskidx->mutex;
+#endif
 	} else {
 		block->idx_blksize = index->blksize;
 		data_fd = index->data_fd;
+#ifdef MULTITHREADED
+		mutex = &index->mutex;
+#endif
 	}
 
 	assert(block->blksize >= block->idx_blksize);
@@ -472,16 +482,30 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 		return -1;
 	}
 
+#ifdef MULTITHREADED
+	if (pthread_mutex_lock(mutex)) {
+		perror("pthread_mutex_lock failed");
+		return -1;
+	}
+#endif
+
 	off_t ofs = lseek(data_fd, file_offset, SEEK_SET);
 	if (ofs == (off_t)-1) {
 		perror("lseek failed");
-		return -1;
+		goto err_unlock;
 	}
 	ssize_t n = read(data_fd, block_thread_state->crypt, compressed_block_size);
 	if (n < 0) {
 		perror("error reading data");
+		goto err_unlock;
+	}
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_unlock(mutex)) {
+		perror("pthread_mutex_unlock failed");
 		return -1;
 	}
+#endif
 
 	if (n < compressed_block_size) {
 		fprintf(stderr, "short read - file truncated?\n");
@@ -509,6 +533,14 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 	}
 
 	return block_size;
+
+err_unlock:
+#ifdef MULTITHREADED
+	if (pthread_mutex_unlock(mutex)) {
+		perror("pthread_mutex_unlock failed");
+	}
+#endif
+	return -1;
 }
 
 static ssize_t _block_read(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir, char *dst, size_t size);

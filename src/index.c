@@ -23,15 +23,24 @@ int index_init(index_t *index, int readonly, const char *salt, size_t salt_len) 
 
 	SHA256_Init(&index->storage_key_context);
 
+#ifdef MULTITHREADED
+	if (pthread_mutex_init(&index->mutex, NULL)) {
+		perror("pthread_mutex_init failed");
+		return -1;
+	}
+#endif
+
 	if (readonly) {
 		return 0;
 	}
 
 	index->next_ino = 2; // in FUSE, 0 is invalid and 1 is reserved for the root
 	if (_index_workidx_grow(index, 1)) {
+		index_free(index);
 		return -1;
 	}
 	if (_index_workidx_grow(index, 1)) {
+		index_free(index);
 		return -1;
 	}
 	SHA256_Init(&index->encryption_key_context);
@@ -60,14 +69,25 @@ static int _index_ondiskidx_alloc(ondiskidx_t *ondiskidx, size_t num_entries) {
 		fprintf(stderr, "index too big\n");
 		return -1;
 	}
-	size_t bitmap_size = (num_entries + 7) / 8;
+
+	const size_t bitmap_size = (num_entries + 7) / 8;
 	uint8_t *bitmap = malloc(bitmap_size);
 	if (!bitmap) {
 		perror("out of memory");
 		return -1;
 	}
 	memset(bitmap, 0, bitmap_size);
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_init(&ondiskidx->mutex, NULL)) {
+		perror("pthread_mutex_init failed");
+		free(bitmap);
+		return -1;
+	}
+#endif
+	
 	ondiskidx->used = bitmap;
+
 	return 0;
 }
 
@@ -85,6 +105,7 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 	index->ondiskidx = ondiskidx;
 	ondiskidx += index->num_ondiskidx;
 
+	// TODO: determine what happens, when sysconf(_SC_PAGESIZE) != PAGE_SIZE
 	const off_t idx_size = lseek(index_fd, 0, SEEK_END);
 	if (idx_size == (off_t)-1) {
 		perror("lseek failed");
@@ -161,6 +182,11 @@ err:
 
 int index_free(index_t *index) {
 	for (size_t i = 0; i < index->num_ondiskidx; i++) {
+#ifdef MULTITHREADED
+		if (pthread_mutex_destroy(&(index->ondiskidx[i].mutex))) {
+			perror("(in index_free) pthread_mutex_destroy failed");
+		}
+#endif
 		if (munmap((void*)index->ondiskidx[i].header, index->ondiskidx[i].size)) {
 			perror("(in index_free) error unmapping index");
 		}
@@ -198,6 +224,12 @@ int index_free(index_t *index) {
 		}
 		index->data_fd = -1;
 	}
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_destroy(&index->mutex)) {
+		perror("(in index_free) pthread_mutex_destroy failed");
+	}
+#endif
 
 	return 0;
 }

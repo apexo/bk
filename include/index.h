@@ -3,6 +3,10 @@
 
 #include <openssl/sha.h>
 
+#ifdef MULTITHREADED
+#include <pthread.h>
+#endif
+
 #include "types.h"
 
 #define ENTRY_SIZE (sizeof(block_key_t) + sizeof(file_offset_t) + sizeof(block_size_t) + sizeof(block_size_t))
@@ -62,6 +66,10 @@ typedef struct ondiskidx {
 	// bitmap, 1 bit per entry; starts at 0 and is set to 1 once referenced;
 	// mostly for statistical purposes (and to determine which indices are actually referenced)
 	uint8_t *used;
+
+#ifdef MULTITHREADED
+	pthread_mutex_t mutex;
+#endif
 } ondiskidx_t;
 
 typedef struct index {
@@ -78,6 +86,10 @@ typedef struct index {
 	uint64_t next_ino;
 
 	index_header_t header;
+
+#ifdef MULTITHREADED
+	pthread_mutex_t mutex;
+#endif
 } index_t;
 
 int index_init(index_t *index, int readonly, const char *salt, size_t salt_len);
