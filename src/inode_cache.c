@@ -165,7 +165,9 @@ void inode_cache_free(inode_cache_t *cache) {
 		}
 	}
 
+#ifdef MULTITHREADED
 	if (pthread_mutex_destroy(&cache->mutex)) {
 		fprintf(stderr, "(in inode_cache_free) pthread_mutex_destroy failed\n");
 	}
+#endif
 }
