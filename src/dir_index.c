@@ -131,7 +131,7 @@ int dir_index_add(dir_index_t *dir_index, const char *name, size_t name_len, uin
 	dir_index_range_t *range = dir_index->range;
 
 	size_t idx = range[1].num_entries ? 0 : 1;
-	SHA256_Final(range[idx].key[0], dir_index->temp);
+	SHA256_Final((unsigned char*)range[idx].key[0], dir_index->temp);
 	range[idx].ino[0] = ino;
 	range[idx].num_entries = 1;
 
@@ -211,21 +211,11 @@ dir_index_range_t *dir_index_merge(dir_index_t* dir_index, mempool_t *mempool) {
 		goto seed;
 	}
 
-	_dir_index_grow(result, range[i1].num_entries);
 	result->num_entries = range[i1].num_entries;
 
 	if (i1 < 2) {
-		// the first to ranges must always be there
-		result->key = malloc(sizeof(block_key_t)*range[i1].num_entries);
-		if (!result->key) {
-			perror("out of memory");
-			free(result);
-			return NULL;
-		}
-		result->ino = malloc(sizeof(uint64_t)*range[i1].num_entries);
-		if (!result->ino) {
-			perror("out of memory");
-			free(result->key);
+		// the first two ranges must always be there
+		if (_dir_index_grow(result, range[i1].num_entries)) {
 			free(result);
 			return NULL;
 		}
@@ -275,8 +265,8 @@ uint64_t dir_index_range_lookup(dir_index_range_t* range, lookup_temp_t *temp, c
 	memcpy(&temp->ctx, range->filename_hash_context, sizeof(SHA256_CTX));
 	SHA256_Update(&temp->ctx, name, name_len);
 	block_key_t key;
-	SHA256_Final(key, &temp->ctx);
-	const unsigned char *key_t = key;
+	SHA256_Final((unsigned char*)key, &temp->ctx);
+	const char *key_t = key;
 
 	const lookup_key_t nk = LOOKUP_KEY(key_t);
 	lookup_key_t nl = LOOKUP_KEY_MIN, nr = LOOKUP_KEY_MAX;
@@ -292,7 +282,7 @@ uint64_t dir_index_range_lookup(dir_index_range_t* range, lookup_temp_t *temp, c
 		assert(leftIdx <= idx);
 		assert(idx < rightIdx);
 
-		const unsigned char *key2 = range->key[idx];
+		const char *key2 = range->key[idx];
 
 		const int p = memcmp(key2, key, BLOCK_KEY_SIZE);
 

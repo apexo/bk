@@ -54,15 +54,39 @@ int mempool_init(mempool_t *mp, size_t align, int locked) {
 	}
 	mp->align_mask = align - 1;
 
+#ifdef MULTITHREADED
+	if (pthread_mutex_init(&mp->mutex, NULL)) {
+		fprintf(stderr, "pthread_mutex_init failed\n");
+		return -1;
+	}
+#endif
+
 	if (_mempool_grow(mp, mp->page_size)) {
 		fprintf(stderr, "_mempool_grow failed\n");
-		return -1;
+		goto err;
 	}
 
 	return 0;
+
+err:
+#ifdef MULTITHREADED
+	if (pthread_mutex_destroy(&mp->mutex)) {
+		fprintf(stderr, "pthread_mutex_destroy failed\n");
+	}
+#endif
+	return -1;
 }
 
 void *mempool_alloc(mempool_t *mp, size_t size) {
+	void* result = NULL;
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_lock(&mp->mutex)) {
+		fprintf(stderr, "pthread_mutex_lock failed\n");
+		return NULL;
+	}
+#endif
+
 	mempool_area_t *area = mp->areas + mp->num_areas - 1;
 	if (size > area->length || area->index > area->length - size) {
 		size_t length;
@@ -74,19 +98,19 @@ void *mempool_alloc(mempool_t *mp, size_t size) {
 		if (size > length) {
 			if (size > SIZE_MAX - mp->page_size + 1) {
 				fprintf(stderr, "requested size too large\n");
-				return NULL;
+				goto out;
 			}
 			length = size + (-size) % mp->page_size;
 		}
 		if (_mempool_grow(mp, length)) {
 			fprintf(stderr, "_mempool_grow failed\n");
-			return NULL;
+			goto out;
 		}
 		area = mp->areas + mp->num_areas - 1;
 		assert(size <= area->length && area->index == 0);
 	}
 
-	void *result = area->addr + area->index;
+	result = area->addr + area->index;
 	area->index += size;
 	const size_t padding = (-size) & mp->align_mask;
 	if (padding < area->length - area->index) {
@@ -94,6 +118,13 @@ void *mempool_alloc(mempool_t *mp, size_t size) {
 	} else {
 		area->index = area->length;
 	}
+
+out:
+#ifdef MULTITHREADED
+	if (pthread_mutex_unlock(&mp->mutex)) {
+		fprintf(stderr, "(in mempool_alloc) pthread_mutex_unlock failed\n");
+	}
+#endif
 	return result;
 }
 
@@ -108,4 +139,10 @@ void mempool_free(mempool_t *mp) {
 		}
 	}
 	free(mp->areas);
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_destroy(&mp->mutex)) {
+		fprintf(stderr, "(in mempool_free) pthread_mutex_destroy failed\n");
+	}
+#endif
 }

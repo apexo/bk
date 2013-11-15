@@ -14,7 +14,7 @@
 #define VERSION 1
 
 typedef struct index_header {
-	unsigned char magic[8];
+	char magic[8];
 
 	// all numbers are in network byte order (big endian)
 	uint32_t version;
@@ -43,7 +43,7 @@ typedef struct index_page {
 	block_size_t block_size[ENTRIES_PER_PAGE];
 	block_size_t compressed_block_size[ENTRIES_PER_PAGE];
 
-	unsigned char fill[PAGE_FILL_BYTES];
+	char fill[PAGE_FILL_BYTES];
 } index_page_t;
 
 typedef struct index_range {
@@ -80,7 +80,7 @@ typedef struct index {
 	index_header_t header;
 } index_t;
 
-int index_init(index_t *index, int readonly, const unsigned char *salt, size_t salt_len);
+int index_init(index_t *index, int readonly, const char *salt, size_t salt_len);
 int index_set_blksize(index_t *index, block_size_t blksize);
 int index_free(index_t *index);
 int index_ondiskidx_add(index_t *index, int index_fd, int data_fd);

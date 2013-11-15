@@ -9,7 +9,7 @@
 #define BLOCK_KEY_SIZE 32
 #define MAX_REF_SIZE (2 + INLINE_THRESHOLD)
 
-typedef unsigned char block_key_t[BLOCK_KEY_SIZE];
+typedef char block_key_t[BLOCK_KEY_SIZE];
 typedef uint64_t file_offset_t;
 typedef uint32_t block_size_t;
 

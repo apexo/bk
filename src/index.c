@@ -14,11 +14,12 @@
 
 static int _index_workidx_grow(index_t *index, size_t limit);
 
-int index_init(index_t *index, int readonly, const unsigned char *salt, size_t salt_len) {
+int index_init(index_t *index, int readonly, const char *salt, size_t salt_len) {
 	assert(sizeof(index_header_t) == PAGE_SIZE);
 	assert(sizeof(index_page_t) == PAGE_SIZE);
 
 	memset(index, 0, sizeof(index_t));
+	index->data_fd = -1;
 
 	SHA256_Init(&index->storage_key_context);
 
@@ -166,9 +167,10 @@ int index_free(index_t *index) {
 
 		free(index->ondiskidx[i].used);
 
-		if (index->ondiskidx[i].data_fd) {
+		if (index->ondiskidx[i].data_fd >= 0) {
 			if (close(index->ondiskidx[i].data_fd)) {
 				perror("(in index_free) close failed");
+				fprintf(stderr, "error closing index data fd: %d\n", index->ondiskidx[i].data_fd);
 			}
 		}
 	}
@@ -189,11 +191,12 @@ int index_free(index_t *index) {
 	}
 	index->num_workidx = 0;
 
-	if (index->data_fd) {
+	if (index->data_fd >= 0) {
 		if (close(index->data_fd)) {
 			perror("(in index_free) close failed");
+			fprintf(stderr, "error closing data fd: %d\n", index->data_fd);
 		}
-		index->data_fd = 0;
+		index->data_fd = -1;
 	}
 
 	return 0;
@@ -383,7 +386,7 @@ static int _index_range_lookup(index_range_t *range, block_key_t key, size_t *re
 
 		const size_t pagenum = idx / ENTRIES_PER_PAGE;
 		const size_t pageidx = idx % ENTRIES_PER_PAGE;
-		const unsigned char *key2 = pages[pagenum].key[pageidx];
+		const char *key2 = pages[pagenum].key[pageidx];
 
 		const int p = memcmp(key2, key, BLOCK_KEY_SIZE);
 
@@ -461,7 +464,7 @@ static void _index_hash(index_t *index, index_range_t *range, size_t num_pages) 
 		data += chunk;
 		idx_size -= chunk;
 	}
-	SHA256_Final(index->header.index_hash, &ctx);
+	SHA256_Final((unsigned char*)index->header.index_hash, &ctx);
 }
 
 static int _index_write_header(int fd, index_t *index, index_range_t *range) {
@@ -580,7 +583,6 @@ int index_write(index_t *index, int fd) {
 
 	// assert(workidx[the_real_index].num_entries);
 
-	fprintf(stderr, "writing out %zd entries from index %zd\n", workidx[the_real_index].num_entries, the_real_index);
 	if (_index_range_write(index, workidx + the_real_index, fd)) {
 		perror("error writing index");
 		return -1;

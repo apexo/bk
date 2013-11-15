@@ -1,6 +1,10 @@
 #ifndef BK_MEMPOOL_H
 #define BK_MEMPOOL_H
 
+#ifdef MULTITHREADED
+#include <pthread.h>
+#endif
+
 typedef struct mempool_area {
 	void *addr;
 	size_t length;
@@ -14,6 +18,9 @@ typedef struct mempool {
 	long page_size;
 	int prot;
 	int flags;
+#ifdef MULTITHREADED
+	pthread_mutex_t mutex;
+#endif
 } mempool_t;
 
 int mempool_init(mempool_t *mp, size_t align, int locked);

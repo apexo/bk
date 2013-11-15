@@ -9,7 +9,7 @@
 
 #define INODE_ENTRIES_MIN 512
 
-static inode_t *_inode_alloc(mempool_t *mempool, const unsigned char *ref, int ref_len) {
+static inode_t *_inode_alloc(mempool_t *mempool, const char *ref, int ref_len) {
 	inode_t *inode = mempool_alloc(mempool, sizeof(inode_t) + ref_len);
 	if (!inode) {
 		perror("out of memory");
@@ -22,35 +22,30 @@ static inode_t *_inode_alloc(mempool_t *mempool, const unsigned char *ref, int r
 	return inode;
 }
 
-int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned char *ref, int ref_len) {
+int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const char *ref, int ref_len) {
 	memset(cache, 0, sizeof(inode_cache_t));
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_init(&cache->mutex, NULL)) {
+		fprintf(stderr, "pthread_mutex_init failed\n");
+		return -1;
+	}
+#endif
 
 	cache->mempool = mempool;
 
-	cache->table[0] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*));
-	if (!cache->table[0]) {
-		perror("out of memory");
-		return -1;
+	for (size_t i = 0; i < 2; i++) {
+		if (!(cache->table[i] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*)))) {
+			perror("out of memory");
+			goto err;
+		}
+		memset(cache->table[i], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
 	}
-	memset(cache->table[0], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
-
-	cache->table[1] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*));
-	if (!cache->table[1]) {
-		perror("out of memory");
-		free(cache->table[0]);
-		cache->table[0] = NULL;
-		return -1;
-	}
-	memset(cache->table[1], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
 
 	inode_t *root = _inode_alloc(mempool, ref, ref_len);
 	if (!root) {
 		fprintf(stderr, "_inode_alloc failed\n");
-		free(cache->table[1]);
-		free(cache->table[0]);
-		cache->table[1] = NULL;
-		cache->table[0] = NULL;
-		return -1;
+		goto err;
 	}
 
 	cache->size[0] = INODE_ENTRIES_MIN;
@@ -61,6 +56,21 @@ int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned ch
 	cache->table[0][1] = root;
 
 	return 0;
+
+err:
+#ifdef MULTITHREADED
+	if (pthread_mutex_destroy(&cache->mutex)) {
+		fprintf(stderr, "pthread_mutex_destroy failed\n");
+	}
+#endif
+	for (size_t i = 0; i < 2; i++) {
+		if (cache->table[i]) {
+			free(cache->table[i]);
+			cache->table[i] = NULL;
+		}
+	}
+
+	return -1;
 }
 
 inode_t* inode_cache_lookup(inode_cache_t *cache, uint64_t ino) {
@@ -75,9 +85,18 @@ inode_t* inode_cache_lookup(inode_cache_t *cache, uint64_t ino) {
 	return cache->table[table_idx][ino];
 }
 
-const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const unsigned char *ref, int ref_len) {
+const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const char *ref, int ref_len) {
+	inode_t *inode = NULL;
 	size_t table_idx = 0;
 	uint64_t ino = be64toh(dentry->ino);
+
+#ifdef MULTITHREADED
+	if (pthread_mutex_lock(&cache->mutex)) {
+		fprintf(stderr, "pthread_mutex_lock failed\n");
+		return NULL;
+	}
+#endif
+
 	while (1) {
 		assert(table_idx < INODE_TABLES);
 		if (!cache->size[table_idx]) {
@@ -85,12 +104,12 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 			const size_t n = cache->size[table_idx - 2] + cache->size[table_idx - 1];
 			if (n > (SIZE_MAX / sizeof(inode_t*))) {
 				fprintf(stderr, "inode cache too large\n");
-				return NULL;
+				goto out;
 			}
 			cache->table[table_idx] = malloc(n * sizeof(inode_t*));
 			if (!cache->table[table_idx]) {
 				perror("out of memory");
-				return NULL;
+				goto out;
 			}
 			memset(cache->table[table_idx], 0, n * sizeof(inode_t*));
 			cache->size[table_idx] = n;
@@ -102,13 +121,14 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 	}
 
 	if (cache->table[table_idx][ino]) {
-		return cache->table[table_idx][ino];
+		inode = cache->table[table_idx][ino];
+		goto out;
 	}
 
-	inode_t *inode = _inode_alloc(cache->mempool, ref, ref_len);
+	inode = _inode_alloc(cache->mempool, ref, ref_len);
 	if (!inode) {
 		fprintf(stderr, "_inode_alloc failed\n");
-		return NULL;
+		goto out;
 	}
 
 	inode->parent_ino = parent_ino;
@@ -124,13 +144,29 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 
 	cache->table[table_idx][ino] = inode;
 
+out:
+#ifdef MULTITHREADED
+	if (pthread_mutex_unlock(&cache->mutex)) {
+		fprintf(stderr, "(in inode_cache_add) pthread_mutex_unlock failed\n");
+	}
+#endif
+
 	return inode;
 }
 
 void inode_cache_free(inode_cache_t *cache) {
 	for (size_t i = 0; i < INODE_TABLES; i++) {
 		if (cache->table[i]) {
+			for (size_t j = 0; j < cache->size[i]; j++) {
+				if (cache->table[i][j] && cache->table[i][j]->dir_index) {
+					dir_index_range_free(cache->table[i][j]->dir_index);
+				}
+			}
 			free(cache->table[i]);
 		}
+	}
+
+	if (pthread_mutex_destroy(&cache->mutex)) {
+		fprintf(stderr, "(in inode_cache_free) pthread_mutex_destroy failed\n");
 	}
 }

@@ -23,7 +23,7 @@
 #define DEFAULT_BLOCK_SIZE 65536
 #define MAX_HEXREF_SIZE ((MAX_REF_SIZE)*2+1)
 
-static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_len, ondiskidx_t **ondiskidx_ret) {
+static int _check_root_reference(index_t *index, char *ref, size_t ref_len, ondiskidx_t **ondiskidx_ret) {
 	const size_t len = ref[0], indir = ref[1];
 
 	if (!indir || len < BLOCK_KEY_SIZE) {
@@ -40,7 +40,7 @@ static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_
 	SHA256_CTX ctx;
 	memcpy(&ctx, &(index->storage_key_context), sizeof(SHA256_CTX));
 	SHA256_Update(&ctx, ref + 2, BLOCK_KEY_SIZE);
-	SHA256_Final(storage_key, &ctx);
+	SHA256_Final((unsigned char*)storage_key, &ctx);
 
 	if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
 		fprintf(stderr, "error resolving root reference, you either have the wrong reference or you're missing the correct index\n");
@@ -87,7 +87,7 @@ static int _check_root_reference(index_t *index, unsigned char *ref, size_t ref_
 	return rc;
 }
 
-static int read_root_ref_from_tty(int fd, char* temp, unsigned char *ref) {
+static int read_root_ref_from_tty(int fd, char* temp, char *ref) {
 	struct termios termios, termios_org;
 	if (tcgetattr(fd, &termios)) {
 		perror("tcgetattr failed");
@@ -150,7 +150,7 @@ static int read_root_ref_from_tty(int fd, char* temp, unsigned char *ref) {
 	return ref_len;
 }
 
-static int read_root_ref_from_pipe(int fd, char* temp, unsigned char *ref) {
+static int read_root_ref_from_pipe(int fd, char* temp, char *ref) {
 	memset(temp, 0, MAX_HEXREF_SIZE);
 
 	size_t len = 0, n;
@@ -181,7 +181,7 @@ static int read_root_ref_from_pipe(int fd, char* temp, unsigned char *ref) {
 	return ref_len;
 }
 
-static int read_root_ref_from_stdin(char *temp, unsigned char *ref) {
+static int read_root_ref_from_stdin(char *temp, char *ref) {
 	const int fd = fileno(stdin);
 	int result;
 	if (isatty(fd)) {
@@ -229,6 +229,7 @@ int do_help_info(int argc, char *argv[]) {
 }
 
 int do_backup(int argc, char *argv[], int idx) {
+	int rc = 1, f_index = 0, f_filter = 0, f_dws = 0, dir_fd = -1, idx_fd = -1;
 	optind = idx;
 
 	static struct option long_options[] = {
@@ -244,14 +245,16 @@ int do_backup(int argc, char *argv[], int idx) {
 	memset(&args, 0, sizeof(args_t));
 	if (filter_init(&args.filter, 0)) {
 		fprintf(stderr, "filter_init failed\n");
-		return 1;
+		goto out;
 	}
-	index_t index;
+	f_filter = 1;
 
-	if (index_init(&index, 0, (const unsigned char*)"SALT", 4)) {
+	index_t index;
+	if (index_init(&index, 0, "SALT", 4)) {
 		fprintf(stderr, "index_init failed\n");
-		return 1;
+		goto out;
 	}
+	f_index = 1;
 
 	size_t blksize = DEFAULT_BLOCK_SIZE;
 	char *target = NULL;
@@ -278,7 +281,7 @@ int do_backup(int argc, char *argv[], int idx) {
 		if (c == 'E' || (!c && option_index == 2)) {
 			if (filter_rule_add(&args.filter, 0, optarg)) {
 				fprintf(stderr, "filter_rule_add failed\n");
-				return 1;
+				goto out;
 			}
 			continue;
 		}
@@ -286,7 +289,7 @@ int do_backup(int argc, char *argv[], int idx) {
 		if (c == 'I' || (!c && option_index == 3)) {
 			if (filter_rule_add(&args.filter, 1, optarg)) {
 				fprintf(stderr, "filter_rule_add failed\n");
-				return 1;
+				goto out;
 			}
 			continue;
 		}
@@ -296,7 +299,7 @@ int do_backup(int argc, char *argv[], int idx) {
 			long int v = strtol(optarg, &endptr, 10);
 			if (*endptr || v == LONG_MIN || v == LONG_MAX || v < 0 || v > 19) {
 				fprintf(stderr, "illegal blksize, must be 0 <= x <= 19: %s\n", optarg);
-				return 1;
+				goto out;
 			}
 			blksize = 4096 << v;
 		}
@@ -309,7 +312,7 @@ int do_backup(int argc, char *argv[], int idx) {
 			} else {
 				if (add_ondiskidx_by_name(&index, optarg, 1)) {
 					fprintf(stderr, "add_ondiskidx_by_name failed\n");
-					return 1;
+					goto out;
 				}
 			}
 		}
@@ -322,73 +325,80 @@ int do_backup(int argc, char *argv[], int idx) {
 
 	if (index_set_blksize(&index, blksize)) {
 		fprintf(stderr, "index_set_blksize failed\n");
-		return 1;
+		goto out;
 	}
 
 	if (!path) {
 		fprintf(stderr, "path missing\n");
-		return do_help_backup(argc, argv);
+		rc = do_help_backup(argc, argv);
+		goto out;
 	}
-
-	int idx_fd = 0;
 
 	if (!args.list_only) {
 		if (!target) {
 			fprintf(stderr, "target missing\n");
-			return do_help_backup(argc, argv);
+			rc = do_help_backup(argc, argv);
+			goto out;
 		}
+
 		idx_fd = open_outputs(&index, target, 0);
+		if (idx_fd < 0) {
+			fprintf(stderr, "open_outputs failed\n");
+			goto out;
+		}
 	}
 
-	block_stack_t bs;
+	dir_write_state_t dws;
 
-	if (block_stack_init(&bs, blksize, 100)) {
-		fprintf(stderr, "block_stack_init failed\n");
-		return 1;
+	if (dir_write_state_init(&dws, &args, &index, blksize)) {
+		fprintf(stderr, "dir_write_state_init failed\n");
+		goto out;
 	}
+	f_dws = 1;
 
-	int fd = open(path, O_NOFOLLOW | O_RDONLY | O_DIRECTORY);
-	if (fd < 0) {
+	dir_fd = open(path, O_NOFOLLOW | O_RDONLY | O_DIRECTORY);
+	if (dir_fd < 0) {
 		perror("open failed");
 		fprintf(stderr, "error opening directory %s\n", path);
-		return 1;
+		goto out;
 	}
 
-	unsigned char ref[MAX_REF_SIZE];
+	char ref[MAX_REF_SIZE];
 	int ref_len;
-	if ((ref_len = dir_write(&bs, 0, &index, &args, fd, ref)) < 0) {
+	if ((ref_len = dir_write(&dws, 0, dir_fd, ref)) < 0) {
 		fprintf(stderr, "dir_write failed\n");
-		if (close(fd)) {
-			perror("close failed");
-		}
-		block_stack_free(&bs);
-		return 1;
+		goto out;
 	}
 
-	if (close(fd)) {
+	if (!args.list_only && index_write(&index, idx_fd)) {
+		fprintf(stderr, "index_write failed\n");
+		goto out;
+	}
+
+	rc = 0;
+
+out:
+	if (dir_fd >= 0 && close(dir_fd)) {
 		perror("close failed");
 	}
-	block_stack_free(&bs);
-
-	if (!args.list_only) {
-		if (index_write(&index, idx_fd)) {
-			fprintf(stderr, "index_write failed\n");
-			if (close_outputs(&index, idx_fd, target, 1)) {
-				fprintf(stderr, "close_outputs failed\n");
-			}
-			return 1;
-		}
-		if (close_outputs(&index, idx_fd, target, 0)) {
-			fprintf(stderr, "close_outputs failed\n");
-			return 1;
-		}	
-
-		for (int i = 0; i < ref_len; i++) {
-			fprintf(stdout, "%02x", ref[i]);
-		}
-		fprintf(stdout, "\n");
+	if (idx_fd >= 0 && close_outputs(&index, idx_fd, target, rc ? 1 : 0)) {
+		fprintf(stderr, "close_outputs failed\n");
 	}
-	return 0;
+	if (!rc) {
+		char hex_ref[MAX_REF_SIZE * 2 + 1];
+		hex_format(hex_ref, ref, ref_len);
+		fprintf(stdout, "%s\n", hex_ref);
+	}
+	if (f_dws) {
+		dir_write_state_free(&dws);
+	}
+	if (f_filter) {
+		filter_free(&args.filter);
+	}
+	if (f_index) {
+		index_free(&index);
+	}
+	return rc;
 }
 
 int do_mount(int argc, char *argv[], int idx) {
@@ -410,7 +420,7 @@ int do_mount(int argc, char *argv[], int idx) {
 	};
 
 	int ref_len = 0;
-	unsigned char *ref = mempool_alloc(&mempool_temp, MAX_REF_SIZE);
+	char *ref = mempool_alloc(&mempool_temp, MAX_REF_SIZE);
 	if (!ref) {
 		fprintf(stderr, "mempool_alloc failed\n");
 		goto out;

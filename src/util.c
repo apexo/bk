@@ -35,7 +35,7 @@ int add_ondiskidx_by_name(index_t *index, char *name, int idx_only) {
 		return -1;
 	}
 
-	int ref_data_fd = 0;	
+	int ref_data_fd = -1;
 	
 	if (!idx_only) {
 		memcpy(name_temp + name_len, ".data", 6);
@@ -53,9 +53,11 @@ int add_ondiskidx_by_name(index_t *index, char *name, int idx_only) {
 	free(name_temp);
 
 	if (index_ondiskidx_add(index, ref_idx_fd, ref_data_fd)) {
-		close(ref_idx_fd);
-		close(ref_data_fd);
 		fprintf(stderr, "error adding index %s\n", name);
+		close(ref_idx_fd);
+		if (ref_data_fd >= 0) {
+			close(ref_data_fd);
+		}
 		return -1;
 	}
 
@@ -66,6 +68,10 @@ int add_ondiskidx_by_name(index_t *index, char *name, int idx_only) {
 int open_outputs(index_t *index, char *name, int force) {
 	int name_len = _normalize_name(name);
 	char *name_temp = malloc(name_len + 6);
+	if (!name_temp) {
+		perror("out of memory");
+		return -1;
+	}
 
 	memcpy(name_temp, name, name_len);
 
@@ -74,33 +80,39 @@ int open_outputs(index_t *index, char *name, int force) {
 	memcpy(name_temp + name_len, ".idx", 5);
 	const int idx_fd = open(name_temp, flags, 0666);
 	if (idx_fd < 0) {
-		perror("error opening index file for writing");
+		perror("open failed");
 		fprintf(stderr, "error opening index file %s\n", name_temp);
-		free(name_temp);
-		return -1;
+		goto err;
 	}
 
 	memcpy(name_temp + name_len, ".data", 6);
 	const int data_fd = open(name_temp, flags, 0666);
 	if (data_fd < 0) {
-		perror("error opening data file for writing");
+		perror("open failed");
 		fprintf(stderr, "error opening data file %s\n", name_temp);
+		goto err;
+	}
 
-		memcpy(name_temp + name_len, ".idx", 6);
+	index->data_fd = data_fd;
+	free(name_temp);
+
+	return idx_fd;
+
+err:
+	if (idx_fd >= 0) {
+		memcpy(name_temp + name_len, ".idx", 5);
 		if (unlink(name_temp)) {
-			perror("error unlinking index file");
+			perror("unlink failed");
 			fprintf(stderr, "error unlinking index file %s\n", name_temp);
 		}
 		if (close(idx_fd)) {
-			perror("error closing index file");
+			perror("close failed");
 		}
-		index->data_fd = 0;
-		free(name_temp);
-		return -1;
 	}
-	index->data_fd = data_fd;
 
-	return idx_fd;
+	free(name_temp);
+
+	return -1;
 }
 
 int close_outputs(index_t *index, int idx_fd, char *name, int fatal_error) {
@@ -150,7 +162,7 @@ static int _hex_decode_nib(char c) {
 	}
 }
 
-int parse_hex_reference(const char *hexref, unsigned char *ref) {
+int parse_hex_reference(const char *hexref, char *ref) {
 	size_t ref_len = 0;
 
 	while (*hexref) {
@@ -184,10 +196,11 @@ static char _hex_encode_nib(int v) {
 	}
 }
 
-void hex_format(char *dst, const unsigned char *value, size_t bytes) {
+void hex_format(char *dst, const char *value, size_t bytes) {
+	const unsigned char *uvalue = (const unsigned char*)value;
 	for (; bytes > 0; bytes--) {
-		*(dst++) = _hex_encode_nib((*value) >> 4);
-		*(dst++) = _hex_encode_nib((*(value++)) & 0xF);
+		*(dst++) = _hex_encode_nib((*uvalue) >> 4);
+		*(dst++) = _hex_encode_nib((*(uvalue++)) & 0xF);
 	}
 	*dst = 0;
 }

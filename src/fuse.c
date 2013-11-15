@@ -15,23 +15,9 @@
 #include "block.h"
 #include "dir.h"
 #include "dir_index.h"
+#include "fuse_state.h"
 
-
-// allocate from locked memory
-typedef struct {
-	lookup_temp_t d;
-	struct fuse_entry_param e;
-} fuse_lookup_temp_t;
-
-inode_cache_t *inode_cache;
-block_cache_t block_cache;
-index_t *block_index;
-ondiskidx_t *the_ondiskidx;
-dir_index_t dir_index;
-mempool_t *mempool;
-fuse_lookup_temp_t *fuse_lookup_temp;
-
-static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
+static void stat_from_inode(ondiskidx_t *ondiskidx, struct stat *stbuf, const inode_t *inode) {
 	memset(stbuf, 0, sizeof(struct stat));
 	stbuf->st_mode = inode->mode;
 	stbuf->st_nlink = 1;
@@ -39,7 +25,7 @@ static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 	stbuf->st_gid = inode->gid;
 	stbuf->st_rdev = inode->rdev;
 	stbuf->st_size = inode->size;
-	stbuf->st_blksize = the_ondiskidx ? the_ondiskidx->blksize : MIN_BLOCK_SIZE;
+	stbuf->st_blksize = ondiskidx ? ondiskidx->blksize : MIN_BLOCK_SIZE;
 	stbuf->st_blocks = inode->blocks;
 	stbuf->st_atime = inode->atime;
 	stbuf->st_mtime = inode->mtime;
@@ -47,65 +33,79 @@ static void stat_from_inode(struct stat *stbuf, const inode_t *inode) {
 }
 
 static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-	const inode_t *inode = inode_cache_lookup(inode_cache, ino);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+
+	const inode_t *inode = inode_cache_lookup(fuse_global_state->inode_cache, ino);
 	if (!inode) {
 		fuse_reply_err(req, EIO);
 		return;
 	}
 
 	struct stat stbuf;
-	stat_from_inode(&stbuf, inode);
+	stat_from_inode(fuse_global_state->ondiskidx, &stbuf, inode);
 	stbuf.st_ino = ino;
 	fuse_reply_attr(req, &stbuf, 86400.0);
 }
 
-static int _populate_dir_index(fuse_ino_t parent, inode_t *parent_inode) {
-	size_t cache_index;
-	block_t *block = block_cache_get(&block_cache, inode_cache, block_index, parent, 0, &cache_index);
+static int _populate_dir_index(fuse_global_state_t *fuse_global_state, fuse_thread_state_t *fuse_thread_state, fuse_ino_t parent, inode_t *parent_inode) {
+	block_t *block = block_cache_get(
+		&fuse_thread_state->block_thread_state,
+		fuse_global_state->block_cache, 
+		fuse_global_state->inode_cache,
+		fuse_global_state->index,
+		parent, 0);
+
 	if (!block) {
 		fprintf(stderr, "block_cache_get failed\n");
 		return -1;
 	}
 
+	int rc = -1;
 	size_t ref_len, dnamelen;
-	const unsigned char *ref, *dname, *username, *groupname;
+	const char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
 
 	ssize_t n;
-	while ((n = dir_entry_read(block, block_index, &dentry,
+	while ((n = dir_entry_read(&fuse_thread_state->block_thread_state, &fuse_thread_state->dir_thread_state, block, fuse_global_state->index, &dentry,
 		&ref, &ref_len,
 		&dname, &dnamelen,
 		&username, &groupname)) > 0) {
 
-		const inode_t *inode = inode_cache_add(inode_cache, parent, dentry, ref, ref_len);
+		const inode_t *inode = inode_cache_add(fuse_global_state->inode_cache, parent, dentry, ref, ref_len);
 		if (!inode) {
 			fprintf(stderr, "inode_cache_add failed\n");
-			return -1;
+			goto out;
 		}
 
-		if (dir_index_add(&dir_index, (const char*)dname, dnamelen, be64toh(dentry->ino))) {
+		if (dir_index_add(fuse_global_state->dir_index, (const char*)dname, dnamelen, be64toh(dentry->ino))) {
 			fprintf(stderr, "dir_index_add failed\n");
-			return -1;
+			goto out;
 		}
 	}
 
 	if (n < 0) {
 		fprintf(stderr, "dir_entry_read failed\n");
-		return -1;
+		goto out;
 	}
 
-	parent_inode->dir_index = dir_index_merge(&dir_index, mempool);
+	parent_inode->dir_index = dir_index_merge(fuse_global_state->dir_index, fuse_global_state->mempool);
 	if (!parent_inode->dir_index) {
 		fprintf(stderr, "dir_index_merge failed\n");
-		return -1;
+		goto out;
 	}
 
-	return 0;
+	rc = 0;
+out:
+	block_cache_put(fuse_global_state->block_cache, block, 0, 0);
+	return rc;
 }
 
 
 static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
-	inode_t *parent_inode = inode_cache_lookup(inode_cache, parent);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
+
+	inode_t *parent_inode = inode_cache_lookup(fuse_global_state->inode_cache, parent);
 	if (!parent_inode) {
 		fprintf(stderr, "(in bk_ll_lookup) inode_cache_lookup failed\n");
 		fuse_reply_err(req, EIO);
@@ -113,30 +113,46 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	}
 
 	if (!parent_inode->dir_index) {
-		if (_populate_dir_index(parent, parent_inode)) {
-			fprintf(stderr, "(in bk_ll_lookup) _populate_dir_index failed\n");
+		#ifdef MULTITHREADED
+		if (pthread_mutex_lock(&fuse_global_state->dir_index_mutex)) {
+			perror("(in bk_ll_lookup) pthread_mutex_lock failed");
 			fuse_reply_err(req, EIO);
 			return;
 		}
+		if (!parent_inode->dir_index) {
+		#endif
+			if (_populate_dir_index(fuse_global_state, fuse_thread_state, parent, parent_inode)) {
+				fprintf(stderr, "(in bk_ll_lookup) _populate_dir_index failed\n");
+				fuse_reply_err(req, EIO);
+				return;
+			}
+		#ifdef MULTITHREADED
+		}
+		if (pthread_mutex_unlock(&fuse_global_state->dir_index_mutex)) {
+			perror("(in bk_ll_lookup) pthread_mutex_unlock failed");
+			fuse_reply_err(req, EIO);
+			return;
+		}
+		#endif
 	}
 
-	const uint64_t ino = dir_index_range_lookup(parent_inode->dir_index, &fuse_lookup_temp->d, name, strlen(name));
+	const uint64_t ino = dir_index_range_lookup(parent_inode->dir_index, &fuse_thread_state->d, name, strlen(name));
 	if (!ino) {
 		fuse_reply_err(req, ENOENT);
 		return;
 	}
 
-	const inode_t *inode = inode_cache_lookup(inode_cache, ino);
+	const inode_t *inode = inode_cache_lookup(fuse_global_state->inode_cache, ino);
 	if (!inode) {
 		fprintf(stderr, "(in bk_ll_lookup) inode_cache_lookup failed\n");
 		fuse_reply_err(req, EIO);
 		return;
 	}
 
-	struct fuse_entry_param *e = &fuse_lookup_temp->e;
+	struct fuse_entry_param *e = &fuse_thread_state->e;
 	e->generation = 1;
 	e->ino = ino;
-	stat_from_inode(&e->attr, inode);
+	stat_from_inode(fuse_global_state->ondiskidx, &e->attr, inode);
 	e->attr.st_ino = ino;
 	e->attr_timeout = 86400.0;
 	e->entry_timeout = 86400.0;
@@ -145,11 +161,14 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 }
 
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-	// TODO: allocate buffer from locked memory and put pointer in per-thread structure
-	char *reply = malloc(size);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
+
+	char *reply = fuse_thread_state_get_reply_buffer(fuse_global_state, fuse_thread_state, size);
+
 	if (!reply) {
-		perror("(in bk_ll_readdir) out of memory");
-		fuse_reply_err(req, ENOMEM);
+		fprintf(stderr, "(in bk_ll_readdir) fuse_thread_state_get_reply_buffer failed\n");
+		fuse_reply_err(req, EIO);
 		return;
 	}
 
@@ -157,11 +176,11 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	const inode_t *self;
 
 	if (off < 2) {
-		self = inode_cache_lookup(inode_cache, ino);
+		self = inode_cache_lookup(fuse_global_state->inode_cache, ino);
 		if (!self) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", ino);
 			fuse_reply_err(req, EIO);
-			goto cleanup;
+			return;
 		}
 	} else {
 		self = NULL;
@@ -169,7 +188,7 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 	if (off == 0) {
 		struct stat stbuf;
-		stat_from_inode(&stbuf, self);
+		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, self);
 		stbuf.st_ino = ino;
 		size_t n = fuse_add_direntry(req, reply + idx, size - idx, ".", &stbuf, off+1);
 		if (n > size - idx) {
@@ -180,14 +199,14 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	}
 
 	if (off == 1) {
-		const inode_t *parent = self->parent_ino == ino ? self : inode_cache_lookup(inode_cache, self->parent_ino);
+		const inode_t *parent = self->parent_ino == ino ? self : inode_cache_lookup(fuse_global_state->inode_cache, self->parent_ino);
 		if (!parent) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", self->parent_ino);
 			fuse_reply_err(req, EIO);
-			goto cleanup;
+			return;
 		}
 		struct stat stbuf;
-		stat_from_inode(&stbuf, parent);
+		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, parent);
 		stbuf.st_ino = self->parent_ino;
 		size_t n = fuse_add_direntry(req, reply + idx, size - idx, "..", &stbuf, off+1);
 		if (n > size - idx) {
@@ -199,63 +218,54 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 	assert(off >= 2);
 
-	size_t cache_index;
-	block_t *block = block_cache_get(&block_cache, inode_cache, block_index, ino, off-2, &cache_index);
+	block_t *block = block_cache_get(
+		&fuse_thread_state->block_thread_state,
+		fuse_global_state->block_cache,
+		fuse_global_state->inode_cache,
+		fuse_global_state->index,
+		ino, off-2);
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_readdir) block_cache_get failed\n");
 		fuse_reply_err(req, EIO);
-		goto cleanup;
+		return;
 	}
 
 	size_t ref_len, dnamelen;
-	const unsigned char *ref, *dname, *username, *groupname;
+	const char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
 
 	ssize_t n;
 
-	while ((n = dir_entry_read(block, block_index, &dentry,
+	while ((n = dir_entry_read(&fuse_thread_state->block_thread_state, &fuse_thread_state->dir_thread_state, block, fuse_global_state->index, &dentry,
 		&ref, &ref_len,
 		&dname, &dnamelen,
 		&username, &groupname)) > 0) {
 
-		const inode_t *inode = inode_cache_add(inode_cache, ino, dentry, ref, ref_len);
+		const inode_t *inode = inode_cache_add(fuse_global_state->inode_cache, ino, dentry, ref, ref_len);
 		if (!inode) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_add failed\n");
 			fuse_reply_err(req, EIO);
-			goto cleanup;
+			block_cache_put(fuse_global_state->block_cache, block, 0, 0);
+			return;
 		}
 
 		struct stat stbuf;
-		stat_from_inode(&stbuf, inode);
+		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, inode);
 		stbuf.st_ino = be64toh(dentry->ino);
 
-		size_t m;
-		if (n < block->blksize - 1) {
-			// there is at least one more byte in the temp buffer behind dname to store a terminating 0
-			// this will overwrite the first byte of username/grouplen, but those should no longer be of use at this point
-			((char*)dname)[dnamelen] = 0;
-			m = fuse_add_direntry(req, reply + idx, size - idx, (const char*)dname, &stbuf, off + n);
-		} else {
-			// there ain't ...
-			char *name = malloc(dnamelen + 1);
-			if (!name) {
-				perror("(in bk_ll_readdir) out of memory");
-				fuse_reply_err(req, ENOMEM);
-				goto cleanup;
-			}
-			memcpy(name, dname, dnamelen);
-			name[dnamelen] = 0;
-			m = fuse_add_direntry(req, reply + idx, size - idx, name, &stbuf, off + n);
-			free(name);
-		}
+		((char*)dname)[dnamelen] = 0;
+		size_t m = fuse_add_direntry(req, reply + idx, size - idx, (const char*)dname, &stbuf, off + n);
 
 		if (m > size - idx) {
 			if (block->idx[0] >= n) {
 				// easy: "unread" dentry and put block back in cache
 				block->idx[0] -= n;
-				block_cache_put(&block_cache, cache_index, ino, off - 2);
-			} // otherwise: dentry was probably split on block boundary
+				block_cache_put(fuse_global_state->block_cache, block, ino, off - 2);
+			} else {
+				// otherwise: dentry was probably split on block boundary, the block state is probably useless now
+				block_cache_put(fuse_global_state->block_cache, block, 0, 0);
+			}
 			goto full;
 		}
 		idx += m;
@@ -265,14 +275,13 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	if (n < 0) {
 		fprintf(stderr, "(in bk_ll_readdir) dir_entry_read failed\n");
 		fuse_reply_err(req, EIO);
-		goto cleanup;
+		block_cache_put(fuse_global_state->block_cache, block, 0, 0);
+		return;
 	}
 
-	//fprintf(stderr, "readdir -> %zd / %zd\n", idx, off);
-
-	block_cache_put(&block_cache, cache_index, ino, off - 2);
+	block_cache_put(fuse_global_state->block_cache, block, ino, off - 2);
 	fuse_reply_buf(req, reply, idx);
-	goto cleanup;
+	return;
 
 full:
 	if (idx) {
@@ -280,14 +289,13 @@ full:
 	} else {
 		fuse_reply_err(req, ERANGE);
 	}
-
-cleanup:
-	free(reply);
 	return;
 }
 
 static void bk_ll_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-	const inode_t *inode = inode_cache_lookup(inode_cache, ino);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+
+	const inode_t *inode = inode_cache_lookup(fuse_global_state->inode_cache, ino);
 	if (!inode) {
 		fprintf(stderr, "(in bk_ll_open) inode_cache_lookup failed\n");
 		fuse_reply_err(req, EIO);
@@ -304,8 +312,24 @@ static void bk_ll_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi
 }
 
 static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-	size_t cache_index;
-	block_t *block = block_cache_get(&block_cache, inode_cache, block_index, ino, off, &cache_index);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
+
+	char *reply = fuse_thread_state_get_reply_buffer(fuse_global_state, fuse_thread_state, size);
+
+	if (!reply) {
+		fprintf(stderr, "(in bk_ll_read) fuse_thread_state_get_reply_buffer failed\n");
+		fuse_reply_err(req, EIO);
+		return;
+	}
+
+	block_t *block = block_cache_get(
+		&fuse_thread_state->block_thread_state,
+		fuse_global_state->block_cache,
+		fuse_global_state->inode_cache,
+		fuse_global_state->index,
+		ino, off);
+
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_read) block_cache_get failed\n");
@@ -313,21 +337,17 @@ static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
 		return;
 	}
 
-	// TODO: allocate buffer from locked memory and put pointer in per-thread structure
-	char *reply = malloc(size);
-	if (!reply) {
-		perror("(in bk_ll_read) out of memory");
-		fuse_reply_err(req, ENOMEM);
-		return;
-	}
-
 	size_t total = 0;
 	ssize_t n;
 
-	while (total < size && (n = block_read(block, block_index, (unsigned char*)reply + total, size - total))) {
+	while (total < size && (n = block_read(
+		&fuse_thread_state->block_thread_state,
+		block,
+		fuse_global_state->index,
+		reply + total, size - total))) {
 		if (n < 0) {
 			fprintf(stderr, "(in bk_ll_read) block_read failed\n");
-			free(reply);
+			block_cache_put(fuse_global_state->block_cache, block, 0, 0);
 			fuse_reply_err(req, EIO);
 			return;
 		}
@@ -335,14 +355,20 @@ static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
 		total += n;
 	}
 
-	block_cache_put(&block_cache, cache_index, ino, off + total);
+	block_cache_put(fuse_global_state->block_cache, block, ino, off + total);
 	fuse_reply_buf(req, reply, total);
-	free(reply);
 }
 
 static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
-	size_t cache_index;
-	block_t *block = block_cache_get(&block_cache, inode_cache, block_index, ino, 0, &cache_index);
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
+
+	block_t *block = block_cache_get(
+		&fuse_thread_state->block_thread_state,
+		fuse_global_state->block_cache,
+		fuse_global_state->inode_cache,
+		fuse_global_state->index,
+		ino, 0);
 
 	if (!block) {
 		fprintf(stderr, "(in bk_ll_readlink) block_cache_get failed\n");
@@ -350,7 +376,16 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 		return;
 	}
 
-	const ssize_t n = block_read(block, block_index, block->temp0, block->blksize);
+	char* buf = fuse_thread_state->reply_buffer;
+	size_t size = fuse_thread_state->reply_buffer_size;
+
+	const ssize_t n = block_read(
+		&fuse_thread_state->block_thread_state,
+		block,
+		fuse_global_state->index,
+		buf, size);
+
+	block_cache_put(fuse_global_state->block_cache, block, 0, 0);
 
 	if (n < 0) {
 		fprintf(stderr, "(in bk_ll_readlink) block_read failed\n");
@@ -358,25 +393,27 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 		return;
 	}
 
-	if (n >= block->blksize) {
+	if (n >= size) {
 		fprintf(stderr, "(in bk_ll_readlink) link too long\n");
 		fuse_reply_err(req, ENAMETOOLONG);
 		return;
 	}
 
-	block->temp0[n] = 0;
-
-	fuse_reply_readlink(req, (char*)block->temp0);
+	buf[n] = 0;
+	fuse_reply_readlink(req, buf);
 }
 
 static void bk_ll_statfs(fuse_req_t req, fuse_ino_t ino) {
+	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
+	ondiskidx_t *ondiskidx = fuse_global_state->ondiskidx;
+
 	struct statvfs stbuf;
 	memset(&stbuf, 0, sizeof(struct statvfs));
-	if (the_ondiskidx) {
-		stbuf.f_bsize = the_ondiskidx->blksize;
-		stbuf.f_frsize = the_ondiskidx->blksize;
+	if (ondiskidx) {
+		stbuf.f_bsize = ondiskidx->blksize;
+		stbuf.f_frsize = ondiskidx->blksize;
 		// very crude
-		stbuf.f_blocks = be64toh(the_ondiskidx->header->dedup_compressed_bytes) / the_ondiskidx->blksize;
+		stbuf.f_blocks = be64toh(ondiskidx->header->dedup_compressed_bytes) / ondiskidx->blksize;
 	} else {
 		stbuf.f_bsize = MIN_BLOCK_SIZE;
 		stbuf.f_frsize = MIN_BLOCK_SIZE;
@@ -394,42 +431,51 @@ static struct fuse_lowlevel_ops bk_ll_oper = {
 	.statfs = bk_ll_statfs,
 };
 
-int fuse_main(index_t *index, inode_cache_t *_inode_cache, ondiskidx_t *ondiskidx, int argc, char *argv[]) {
-	the_ondiskidx = ondiskidx;
+int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx, int argc, char *argv[]) {
+	fuse_global_state_t fuse_global_state;
+	memset(&fuse_global_state, 0, sizeof(fuse_global_state_t));
 
+	fuse_global_state.index = index;
+	fuse_global_state.ondiskidx = ondiskidx;
+	fuse_global_state.mempool = inode_cache->mempool;
+	fuse_global_state.inode_cache = inode_cache;
+
+	if (fuse_thread_state_setup(&fuse_global_state)) {
+		fprintf(stderr, "fuse_thread_state_setup failed\n");
+		return 1;
+	}
+
+	block_cache_t block_cache;
 	if (block_cache_init(&block_cache, ondiskidx ? ondiskidx->blksize : MIN_BLOCK_SIZE)) {
 		fprintf(stderr, "block_cache_init failed\n");
 		return 1;
 	}
 
-	mempool = _inode_cache->mempool;
-
-	if (dir_index_init(&dir_index, mempool)) {
+	dir_index_t dir_index;
+	if (dir_index_init(&dir_index, fuse_global_state.mempool)) {
 		fprintf(stderr, "dir_index_init failed\n");
 		block_cache_free(&block_cache);
 		return 1;
 	}
 
-	if (!(fuse_lookup_temp = mempool_alloc(mempool, sizeof(fuse_lookup_temp_t)))) {
-		fprintf(stderr, "mempool_alloc failed\n");
-		block_cache_free(&block_cache);
-		dir_index_free(&dir_index);
-		return 1;
-	}
+	fuse_global_state.block_cache = &block_cache;
+	fuse_global_state.dir_index = &dir_index;
 
-	block_index = index;
-	inode_cache = _inode_cache;
 
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 	struct fuse_chan *ch;
 	char *mountpoint;
 	int err = -1;
 	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 && (ch = fuse_mount(mountpoint, &args)) != NULL) {
-		struct fuse_session *se = fuse_lowlevel_new(&args, &bk_ll_oper, sizeof(bk_ll_oper), NULL);
+		struct fuse_session *se = fuse_lowlevel_new(&args, &bk_ll_oper, sizeof(bk_ll_oper), &fuse_global_state);
 		if (se != NULL) {
 			if (fuse_set_signal_handlers(se) != -1) {
 				fuse_session_add_chan(se, ch);
+#ifdef MULTITHREADED
+				err = fuse_session_loop_mt(se);
+#else
 				err = fuse_session_loop(se);
+#endif
 				fuse_remove_signal_handlers(se);
 				fuse_session_remove_chan(ch);
 			}
@@ -442,6 +488,8 @@ int fuse_main(index_t *index, inode_cache_t *_inode_cache, ondiskidx_t *ondiskid
 		free(mountpoint);
 	}
 
+	fuse_thread_state_free(&fuse_global_state);
+	dir_index_free(&dir_index);
 	block_cache_free(&block_cache);
 
 	return err ? 1 : 0;

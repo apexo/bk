@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef MULTITHREADED
+#include <pthread.h>
+#endif
+
 #include "dir.h"
 #include "mempool.h"
 #include "dir_index.h"
@@ -11,7 +15,12 @@
 
 typedef struct inode  {
 	uint64_t parent_ino;
-	dir_index_range_t *dir_index;
+
+	dir_index_range_t *
+		#ifdef MULTITHREADED
+		volatile
+		#endif
+		dir_index;
 
 	/* all dentry_t fields, except: ino (implicit), namelen, usernamelen, grouplen (not used) */
 	uint64_t rdev;    /* device ID (if special file) */
@@ -25,18 +34,21 @@ typedef struct inode  {
 	uint32_t gid;     /* group ID of owner */
 
 	uint8_t ref_len;
-	unsigned char ref[];
+	char ref[];
 } inode_t;
 
 typedef struct inode_cache {
 	size_t size[INODE_TABLES];
 	inode_t **table[INODE_TABLES];
 	mempool_t *mempool;
+#ifdef MULTITHREADED
+	pthread_mutex_t mutex;
+#endif
 } inode_cache_t;
 
-int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const unsigned char *ref, int ref_len);
+int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const char *ref, int ref_len);
 inode_t *inode_cache_lookup(inode_cache_t *cache, uint64_t ino);
-const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const unsigned char *ref, int ref_len);
+const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const char *ref, int ref_len);
 void inode_cache_free(inode_cache_t *cache);
 
 #endif

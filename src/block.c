@@ -55,7 +55,6 @@ static void _set_limits(block_t *block) {
 	const off_t block_ref_limit = blksize / BLOCK_KEY_SIZE;
 	off_t blocks = (filesize_limit / blksize) + 1;
 
-
 	block->limit[0] = filesize_limit > blksize ? blksize : filesize_limit;
 	for (size_t i = 1; i <= MAX_INDIRECTION; i++) {
 		if (i == MAX_INDIRECTION && blocks > inline_blocks) {
@@ -77,7 +76,6 @@ static void _set_limits(block_t *block) {
 }
 
 static ssize_t _get_locked_size(block_t *block, long *page_size_ret) {
-	const size_t blksize = block->blksize;
 	ssize_t limit = SSIZE_MAX;
 	ssize_t locked_bytes = 0;
 
@@ -86,13 +84,6 @@ static ssize_t _get_locked_size(block_t *block, long *page_size_ret) {
 		perror("error querying page size");
 		return -1;
 	}
-
-	// temp0
-	if (_safe_add(&locked_bytes, &limit, blksize)) { return -1; }
-
-	// temp1 + align
-	if (_safe_add(&locked_bytes, &limit, LZ4_compressBound(blksize))) { return -1; }
-	if (_safe_add(&locked_bytes, &limit, (size_t)(-locked_bytes)%ALIGN)) { return -1; }
 
 	// data + align
 	for (size_t i = 0; i <= MAX_INDIRECTION; i++) {
@@ -113,8 +104,6 @@ static ssize_t _get_locked_size(block_t *block, long *page_size_ret) {
 }
 
 static int _block_allocate_locked_mem(block_t *block) {
-	size_t blksize = block->blksize;
-
 	_set_limits(block);
 
 	long page_size;
@@ -124,7 +113,7 @@ static int _block_allocate_locked_mem(block_t *block) {
 		return -1;
 	}
 
-	unsigned char *locked_mem = mmap(NULL, locked_bytes, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_LOCKED | MAP_PRIVATE, -1, 0);
+	char *locked_mem = mmap(NULL, locked_bytes, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_LOCKED | MAP_PRIVATE, -1, 0);
 	if (locked_mem == MAP_FAILED) {
 		perror("error allocating locked memory");
 		fprintf(stderr, "failed to mmap %zd bytes of locked memory\n", locked_bytes);
@@ -132,13 +121,6 @@ static int _block_allocate_locked_mem(block_t *block) {
 	}
 
 	ssize_t ofs = 0;
-
-	block->temp0 = locked_mem;
-	ofs += blksize;
-
-	block->temp1 = locked_mem + ofs;
-	ofs += LZ4_compressBound(blksize);
-	ofs += (size_t)(-ofs) % ALIGN;
 
 	for (size_t i = 0; i <= MAX_INDIRECTION; i++) {
 		if (block->limit[i]) {
@@ -162,15 +144,8 @@ int block_init(block_t *block, size_t blksize) {
 
 	block->blksize = blksize;
 
-	block->temp2 = malloc(blksize);
-	if (!block->temp2) {
-		perror("out of memory");
-		return -1;
-	}
-
 	if (_block_allocate_locked_mem(block)) {
 		fprintf(stderr, "_block_allocate_locked_mem failed\n");
-		free(block->temp2);
 		return -1;
 	}
 	return 0;
@@ -179,20 +154,19 @@ int block_init(block_t *block, size_t blksize) {
 void block_free(block_t *block) {
 	ssize_t locked_bytes = _get_locked_size(block, NULL);
 	assert(locked_bytes > 0);
-	memset(block->temp0, 0, locked_bytes);
-	if (munmap(block->temp0, locked_bytes) < 0) {
+	memset(block->data[0], 0, locked_bytes);
+	if (munmap(block->data[0], locked_bytes) < 0) {
 		perror("(in block_free) munmap failed");
 	}
-	free(block->temp2);
 }
 
-static void _block_hash(index_t *index, const unsigned char *data, size_t n, block_key_t encryption_key) {
+static void _block_hash(index_t *index, const char *data, size_t n, block_key_t encryption_key) {
 	assert(sizeof(block_key_t) == SHA256_DIGEST_LENGTH);
 
 	SHA256_CTX ctx;
 	memcpy(&ctx, &(index->encryption_key_context), sizeof(SHA256_CTX));
 	SHA256_Update(&ctx, data, n);
-	SHA256_Final(encryption_key, &ctx);
+	SHA256_Final((unsigned char*)encryption_key, &ctx);
 }
 
 static void _block_hash2(index_t *index, const block_key_t encryption_key, block_key_t storage_key) {
@@ -201,13 +175,13 @@ static void _block_hash2(index_t *index, const block_key_t encryption_key, block
 	SHA256_CTX ctx;
 	memcpy(&ctx, &(index->storage_key_context), sizeof(SHA256_CTX));
 	SHA256_Update(&ctx, encryption_key, SHA256_DIGEST_LENGTH);
-	SHA256_Final(storage_key, &ctx);
+	SHA256_Final((unsigned char*)storage_key, &ctx);
 }
 
 // only store compressed data if compressible by at least 5%
 #define IS_COMPRESSIBLE(size, compressed) ((compressed) && ((compressed) < (size)) && ((size) - (compressed) > (size) / 20))
 
-static const unsigned char *_block_compress(const unsigned char *src, size_t n, unsigned char *dst, block_size_t *compressed_block_size) {
+static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size) {
 	int compressed = LZ4_compress((const char*)src, (char*)dst, n);
 	if (IS_COMPRESSIBLE(n, compressed)) {
 		*compressed_block_size = compressed;
@@ -218,7 +192,7 @@ static const unsigned char *_block_compress(const unsigned char *src, size_t n, 
 	}
 }
 
-static int _block_crypt(const unsigned char *src, size_t n, unsigned char *dst, block_key_t encryption_key, int enc) {
+static int _block_crypt(const char *src, size_t n, char *dst, block_key_t encryption_key, int enc) {
 	const EVP_CIPHER *cipher = EVP_aes_256_ctr();
 	if (!cipher) {
 		fprintf(stderr, "EVP_aes_256_ctr failed\n");
@@ -233,21 +207,21 @@ static int _block_crypt(const unsigned char *src, size_t n, unsigned char *dst, 
 	EVP_CIPHER_CTX ctx;
 	EVP_CIPHER_CTX_init(&ctx);
 
-	if (!EVP_CipherInit_ex(&ctx, cipher, NULL, encryption_key, iv, enc)) {
+	if (!EVP_CipherInit_ex(&ctx, cipher, NULL, (unsigned char*)encryption_key, iv, enc)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherInit_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
 		EVP_CIPHER_CTX_cleanup(&ctx);
 		return -1;
 	}
 
 	int len;
- 	if (!EVP_CipherUpdate(&ctx, dst, &len, src, n)) {
+ 	if (!EVP_CipherUpdate(&ctx, (unsigned char*)dst, &len, (const unsigned char*)src, n)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherUpdate failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
 		EVP_CIPHER_CTX_cleanup(&ctx);
 		return -1;
 	}
 
 	int f_len;
-	if (!EVP_CipherFinal_ex(&ctx, dst+len, &f_len)) {
+	if (!EVP_CipherFinal_ex(&ctx, (unsigned char*)(dst+len), &f_len)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherFinal_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
 		EVP_CIPHER_CTX_cleanup(&ctx);
 		return -1;
@@ -259,7 +233,7 @@ static int _block_crypt(const unsigned char *src, size_t n, unsigned char *dst, 
 	return 0;
 }
 
-static int _block_data_write(index_t *index, const unsigned char *data, block_key_t storage_key, block_size_t block_size, block_size_t compressed_block_size) {
+static int _block_data_write(index_t *index, const char *data, block_key_t storage_key, block_size_t block_size, block_size_t compressed_block_size) {
 	assert(compressed_block_size && compressed_block_size <= block_size);
 
 	off_t file_offset = lseek(index->data_fd, 0, SEEK_CUR);
@@ -287,7 +261,7 @@ static int _block_data_write(index_t *index, const unsigned char *data, block_ke
 	return 0;
 }
 
-static int _block_dedup(block_t *block, index_t *index, const unsigned char *block_data, size_t block_size, block_key_t encryption_key) {
+static int _block_dedup(block_thread_state_t *block_thread_state, block_t *block, index_t *index, const char *block_data, size_t block_size, block_key_t encryption_key) {
 	file_offset_t file_offset;
 	block_size_t temp_block_size, compressed_block_size;
 	block_key_t storage_key;
@@ -301,12 +275,12 @@ static int _block_dedup(block_t *block, index_t *index, const unsigned char *blo
 	index->header.total_bytes += block_size;
 
 	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
-		const unsigned char* compressed_data = _block_compress(block_data, block_size, block->temp1, &compressed_block_size);
-		if (_block_crypt(compressed_data, compressed_block_size, block->temp2, encryption_key, 1)) {
+		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, &compressed_block_size);
+		if (_block_crypt(compressed_data, compressed_block_size, block_thread_state->crypt, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
 			return -1;
 		}
-		if (_block_data_write(index, block->temp2, storage_key, block_size, compressed_block_size)) {
+		if (_block_data_write(index, block_thread_state->crypt, storage_key, block_size, compressed_block_size)) {
 			fprintf(stderr,  "_block_data_write failed\n");
 			return -1;
 		}
@@ -322,7 +296,7 @@ static int _block_dedup(block_t *block, index_t *index, const unsigned char *blo
 	return 0;
 }
 
-static int _block_flush(block_t *block, index_t *index, size_t indir, const unsigned char *block_data, size_t block_size) {
+static int _block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir, const char *block_data, size_t block_size) {
 	if (indir == MAX_INDIRECTION) {
 		fprintf(stderr, "file too big\n");
 		return -1;
@@ -335,7 +309,7 @@ static int _block_flush(block_t *block, index_t *index, size_t indir, const unsi
 
 	assert(block->len[indir+1] + BLOCK_KEY_SIZE <= block->blksize);
 
-	if (_block_dedup(block, index, block_data, block_size, (block->data[indir+1] + block->len[indir + 1]))) {
+	if (_block_dedup(block_thread_state, block, index, block_data, block_size, (block->data[indir+1] + block->len[indir + 1]))) {
 		fprintf(stderr, "_block_dedup failed\n");
 		return -1;
 	}
@@ -343,7 +317,7 @@ static int _block_flush(block_t *block, index_t *index, size_t indir, const unsi
 	block->len[indir+1] += BLOCK_KEY_SIZE;
 
 	if (block->len[indir+1] == block->blksize) {
-		if (_block_flush(block, index, indir+1, block->data[indir+1], block->len[indir+1])) {
+		if (_block_flush(block_thread_state, block, index, indir+1, block->data[indir+1], block->len[indir+1])) {
 			return -1;
 		}
 		block->len[indir+1] = 0;
@@ -352,13 +326,13 @@ static int _block_flush(block_t *block, index_t *index, size_t indir, const unsi
 	return 0;
 }
 
-int block_append(block_t *block, index_t *index, const unsigned char *data, size_t size) {
+int block_append(block_thread_state_t *block_thread_state, block_t *block, index_t *index, const char *data, size_t size) {
 	const size_t bs = block->blksize;
 
 	block->raw_bytes += size;
 
 	if (!block->len[0] && size == bs) {
-		if (_block_flush(block, index, 0, data, size)) {
+		if (_block_flush(block_thread_state, block, index, 0, data, size)) {
 			fprintf(stderr, "_block_flush failed\n");
 			return -1;
 		}
@@ -372,7 +346,7 @@ int block_append(block_t *block, index_t *index, const unsigned char *data, size
 		size -= n1;
 		block->len[0] = bs;
 
-		if (_block_flush(block, index, 0, block->data[0], block->len[0])) {
+		if (_block_flush(block_thread_state, block, index, 0, block->data[0], block->len[0])) {
 			fprintf(stderr, "_block_flush failed\n");
 			return -1;
 		}
@@ -389,11 +363,11 @@ int block_append(block_t *block, index_t *index, const unsigned char *data, size
 	return 0;
 }
 
-int block_flush(block_t *block, index_t *index, unsigned char* ref) {
+int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char* ref) {
 	size_t indir = 0;
 	while (indir < block->indirection || (indir == block->indirection && block->len[indir] > INLINE_THRESHOLD)) {
 		if (block->len[indir]) {
-			if (_block_flush(block, index, indir, block->data[indir], block->len[indir])) {
+			if (_block_flush(block_thread_state, block, index, indir, block->data[indir], block->len[indir])) {
 				fprintf(stderr, "_block_flush failed\n");
 				return -1;
 			}
@@ -415,12 +389,13 @@ int block_flush(block_t *block, index_t *index, unsigned char* ref) {
 	return n;
 }
 
-int block_ref_length(const unsigned char *ref) {
-	return ref[0] + 2;
+int block_ref_length(const char *ref) {
+	return ((const unsigned char*)ref)[0] + 2;
 }
 
-int block_ref_check(const unsigned char *ref, size_t ref_len) {
-	const size_t len = ref[0], indir = ref[1];
+int block_ref_check(const char *ref, size_t ref_len) {
+	const unsigned char *uref = (const unsigned char*)ref;
+	const size_t len = uref[0], indir = uref[1];
 
 	if (indir > MAX_INDIRECTION || (indir && len < BLOCK_KEY_SIZE) || len > INLINE_THRESHOLD || (indir && len % BLOCK_KEY_SIZE)) {
 		fprintf(stderr, "illegal reference\n");
@@ -435,13 +410,20 @@ int block_ref_check(const unsigned char *ref, size_t ref_len) {
 	return 0;
 }
 
-int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
+int block_setup(block_t *block, const char *ref, size_t ref_len) {
 	if (block_ref_check(ref, ref_len)) {
 		fprintf(stderr, "block_ref_check failed\n");
 		return -1;
 	}
 
-	const size_t len = ref[0], indir = ref[1];
+	const unsigned char *uref = (const unsigned char*)ref;
+
+	const size_t len = uref[0], indir = uref[1];
+
+	if (len > block->limit[indir]) {
+		fprintf(stderr, "too many indirections in reference\n");
+		return -1;
+	}
 
 	block->idx_blksize = 0;
 
@@ -455,7 +437,7 @@ int block_setup(block_t *block, const unsigned char *ref, size_t ref_len) {
 	return 0;
 }
 
-static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, size_t size, block_key_t encryption_key) {
+static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char *dst, size_t size, block_key_t encryption_key) {
 	block_key_t storage_key;
 	int data_fd;
 	file_offset_t file_offset;
@@ -495,7 +477,7 @@ static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, 
 		perror("lseek failed");
 		return -1;
 	}
-	ssize_t n = read(data_fd, block->temp2, compressed_block_size);
+	ssize_t n = read(data_fd, block_thread_state->crypt, compressed_block_size);
 	if (n < 0) {
 		perror("error reading data");
 		return -1;
@@ -506,9 +488,9 @@ static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, 
 		return -1;
 	}
 
-	unsigned char *decrypted = compressed_block_size < block_size ? block->temp1 : dst;
+	char *decrypted = compressed_block_size < block_size ? block_thread_state->pack : dst;
 
-	if (_block_crypt(block->temp2, compressed_block_size, decrypted, encryption_key, 0)) {
+	if (_block_crypt(block_thread_state->crypt, compressed_block_size, decrypted, encryption_key, 0)) {
 		fprintf(stderr, "_block_crypt failed\n");
 		return -1;
 	}
@@ -529,15 +511,15 @@ static ssize_t _block_fetch(block_t *block, index_t *index, unsigned char *dst, 
 	return block_size;
 }
 
-static ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigned char *dst, size_t size);
+static ssize_t _block_read(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir, char *dst, size_t size);
 
-static ssize_t _block_next(block_t *block, index_t *index, size_t indir) {
+static ssize_t _block_next(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir) {
 	if (indir == block->indirection) {
 		return 0;
 	}
 
 	block_key_t encryption_key;
-	ssize_t n = _block_read(block, index, indir+1, encryption_key, BLOCK_KEY_SIZE);
+	ssize_t n = _block_read(block_thread_state, block, index, indir+1, encryption_key, BLOCK_KEY_SIZE);
 	if (n < 0) {
 		fprintf(stderr, "_block_read failed\n");
 		return -1;
@@ -552,7 +534,7 @@ static ssize_t _block_next(block_t *block, index_t *index, size_t indir) {
 		return -1;
 	}
 
-	n = _block_fetch(block, index, block->data[indir], block->blksize, encryption_key);
+	n = _block_fetch(block_thread_state, block, index, block->data[indir], block->blksize, encryption_key);
 	if (n < 0) {
 		fprintf(stderr, "_block_fetch failed\n");
 		return -1;
@@ -566,9 +548,9 @@ static ssize_t _block_next(block_t *block, index_t *index, size_t indir) {
 	return n;
 }
 
-static ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigned char *dst, size_t size) {
+static ssize_t _block_read(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir, char *dst, size_t size) {
 	if (block->idx[indir] == block->len[indir]) {
-		ssize_t n = _block_next(block, index, indir);
+		ssize_t n = _block_next(block_thread_state, block, index, indir);
 		if (!n) {
 			return 0;
 		}
@@ -585,7 +567,7 @@ static ssize_t _block_read(block_t *block, index_t *index, size_t indir, unsigne
 	return n;
 }
 
-static ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t ofs) {
+static ssize_t _block_skip(block_thread_state_t *block_thread_state, block_t *block, index_t *index, size_t indir, size_t ofs) {
 	size_t rem = block->len[indir] - block->idx[indir];
 	if (rem) {
 		if (ofs > rem) {
@@ -603,7 +585,7 @@ static ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t 
 
 	if (block->idx_blksize && ofs >= block->idx_blksize) {
 		size_t blocks = ofs / block->idx_blksize;
-		ssize_t skipped = _block_skip(block, index, indir + 1, blocks * BLOCK_KEY_SIZE);
+		ssize_t skipped = _block_skip(block_thread_state, block, index, indir + 1, blocks * BLOCK_KEY_SIZE);
 		if (skipped < 0) {
 			fprintf(stderr, "_block_skip failed\n");
 			return -1;
@@ -615,7 +597,7 @@ static ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t 
 		return (skipped / BLOCK_KEY_SIZE) * block->idx_blksize;
 	}
 
-	ssize_t bytes = _block_next(block, index, indir);
+	ssize_t bytes = _block_next(block_thread_state, block, index, indir);
 	if (!bytes) {
 		return 0;
 	}
@@ -633,7 +615,7 @@ static ssize_t _block_skip(block_t *block, index_t *index, size_t indir, size_t 
 	}
 }
 
-int block_skip(block_t *block, index_t *index, off_t ofs) {
+int block_skip(block_thread_state_t *block_thread_state, block_t *block, index_t *index, off_t ofs) {
 	off_t org_ofs = ofs;
 	if (ofs < 0) {
 		fprintf(stderr, "negative offset not supported\n");
@@ -641,7 +623,7 @@ int block_skip(block_t *block, index_t *index, off_t ofs) {
 	}
 	while (ofs > 0) {
 		const ssize_t chunk = ofs > SSIZE_MAX ? SSIZE_MAX : ofs;
-		const ssize_t skipped = _block_skip(block, index, 0, chunk);
+		const ssize_t skipped = _block_skip(block_thread_state, block, index, 0, chunk);
 		if (skipped < 0) {
 			fprintf(stderr, "_block_skip failed\n");
 			return -1;
@@ -655,7 +637,7 @@ int block_skip(block_t *block, index_t *index, off_t ofs) {
 	return 1;
 }
 
-ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t size) {
+ssize_t block_read(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char *dst, size_t size) {
 	block_key_t encryption_key;
 
 	if (block->idx[0] < block->len[0]) {
@@ -670,7 +652,7 @@ ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t si
 		return 0;
 	}
 
-	ssize_t n = _block_read(block, index, 1, encryption_key, BLOCK_KEY_SIZE);
+	ssize_t n = _block_read(block_thread_state, block, index, 1, encryption_key, BLOCK_KEY_SIZE);
 	if (n < 0) {
 		fprintf(stderr, "_block_read failed\n");
 		return -1;
@@ -686,7 +668,7 @@ ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t si
 	}
 
 	if (size >= block->blksize) {
-		n = _block_fetch(block, index, dst, block->blksize, encryption_key);
+		n = _block_fetch(block_thread_state, block, index, dst, block->blksize, encryption_key);
 		if (n < 0) {
 			fprintf(stderr, "_block_fetch failed\n");
 			return -1;
@@ -695,7 +677,7 @@ ssize_t block_read(block_t *block, index_t *index, unsigned char *dst, size_t si
 		return n;
 	}
 
-	n = _block_fetch(block, index, block->data[0], block->blksize, encryption_key);
+	n = _block_fetch(block_thread_state, block, index, block->data[0], block->blksize, encryption_key);
 	if (n < 0) {
 		fprintf(stderr, "_block_fetch failed\n");
 		return -1;

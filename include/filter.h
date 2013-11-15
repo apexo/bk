@@ -28,6 +28,7 @@ typedef struct filter {
 
 int filter_init(filter_t *filter, int flags);
 int filter_rule_add(filter_t *filter, int include, const char *pattern);
+void filter_free(filter_t *filter);
 
 /*
  * returns -1 on error, 0 when the directory is filtered out, and 1 on success;

@@ -123,33 +123,31 @@ static int _filter_match_add(filter_match_t *match, filter_rule_t *rule, size_t 
 }
 
 int filter_rule_add(filter_t *filter, int include, const char *pattern) {
-	filter_rule_t filter_rule;
-
-	if (filter_rule_init(&filter_rule, include, pattern)) {
-		fprintf(stderr, "filter_rule_init failed\n");
+	filter_rule_t **rules = realloc(filter->rules, sizeof(filter_rule_t*)*(filter->rule_count+1));
+	if (!rules) {
+		perror("out of memory");
 		return -1;
 	}
+	filter->rules = rules;
 
 	filter_rule_t *rule = malloc(sizeof(filter_rule_t));
 	if (!rule) {
 		perror("out of memory");
 		return -1;
 	}
-	memcpy(rule, &filter_rule, sizeof(filter_rule_t));
+	rules[filter->rule_count] = rule;
 
-	filter_rule_t **rules = realloc(filter->rules, sizeof(filter_rule_t*)*(filter->rule_count+1));
-	if (!rules) {
+	if (filter_rule_init(rule, include, pattern)) {
+		fprintf(stderr, "filter_rule_init failed\n");
 		free(rule);
-		perror("out of memory");
 		return -1;
 	}
-	filter->rules = rules;
-
-	rules[filter->rule_count] = rule;
 	filter->rule_count++;
 
-	if (_filter_match_add(filter->match, rules[filter->rule_count - 1], 0)) {
+	if (_filter_match_add(filter->match, rule, 0)) {
 		fprintf(stderr, "_filter_match_add failed\n");
+		filter_rule_free(rule);
+		free(rule);
 		return -1;
 	}
 
@@ -309,8 +307,9 @@ int filter_test_leaf(filter_t *filter, const char *name) {
 void filter_free(filter_t *filter) {
 	for (size_t i = 0; i < filter->rule_count; i++) {
 		filter_rule_free(filter->rules[i]);
+		free(filter->rules[i]);
 	}
-	if (filter->rule_count) {
+	if (filter->rules) {
 		free(filter->rules);
 	}
 	for (size_t i = 0; i < filter->max_depth; i++) {
