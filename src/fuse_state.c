@@ -119,7 +119,7 @@ char *fuse_thread_state_get_reply_buffer(fuse_global_state_t *global_state, fuse
 	return fuse_thread_state->reply_buffer;
 }
 
-int fuse_thread_state_setup(fuse_global_state_t *global_state) {
+int fuse_global_state_setup(fuse_global_state_t *global_state) {
 	global_state->page_size = sysconf(_SC_PAGESIZE);
 	if (global_state->page_size < 0) {
 		perror("sysconf failed\n");
@@ -137,14 +137,14 @@ int fuse_thread_state_setup(fuse_global_state_t *global_state) {
 	if (pthread_mutex_init(&global_state->dir_index_mutex, NULL)) {
 		perror("pthread_mutex_init failed");
 		if (pthread_key_delete(global_state->state_key)) {
-			perror("(in fuse_thread_state_free) pthread_key_delete failed");
+			perror("(in fuse_global_state_setup) pthread_key_delete failed");
 		}
 		return -1;
 	}
 #else
 	global_state->single_thread_state = _fuse_thread_state_alloc(global_state);
 	if (!global_state->single_thread_state) {
-		fprintf(stderr, "fuse_thread_state_alloc failed\n");
+		fprintf(stderr, "_fuse_thread_state_alloc failed\n");
 		return -1;
 	}
 #endif
@@ -160,7 +160,11 @@ fuse_thread_state_t *fuse_thread_state_get(fuse_global_state_t *global_state) {
 			fprintf(stderr, "_fuse_thread_state_alloc failed\n");
 			return NULL;
 		}
-		pthread_setspecific(global_state->state_key, result);
+		if (pthread_setspecific(global_state->state_key, result)) {
+			fprintf(stderr, "pthread_setspecific failed\n");
+			_fuse_thread_state_free(result);
+			return NULL;
+		}
 	}
 	return result;
 #else
@@ -168,10 +172,10 @@ fuse_thread_state_t *fuse_thread_state_get(fuse_global_state_t *global_state) {
 #endif
 }
 
-void fuse_thread_state_free(fuse_global_state_t *global_state) {
+void fuse_global_state_free(fuse_global_state_t *global_state) {
 #ifdef MULTITHREADED
 	if (pthread_key_delete(global_state->state_key)) {
-		perror("(in fuse_thread_state_free) pthread_key_delete failed");
+		perror("(in fuse_global_state_free) pthread_key_delete failed");
 	}
 #else
 	_fuse_thread_state_free(global_state->single_thread_state);

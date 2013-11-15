@@ -440,7 +440,7 @@ int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx
 	fuse_global_state.mempool = inode_cache->mempool;
 	fuse_global_state.inode_cache = inode_cache;
 
-	if (fuse_thread_state_setup(&fuse_global_state)) {
+	if (fuse_global_state_setup(&fuse_global_state)) {
 		fprintf(stderr, "fuse_thread_state_setup failed\n");
 		return 1;
 	}
@@ -488,7 +488,7 @@ int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx
 		free(mountpoint);
 	}
 
-	fuse_thread_state_free(&fuse_global_state);
+	fuse_global_state_free(&fuse_global_state);
 	dir_index_free(&dir_index);
 	block_cache_free(&block_cache);
 

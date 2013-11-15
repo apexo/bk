@@ -64,9 +64,9 @@ typedef struct fuse_global_state {
 } fuse_global_state_t;
 
 
-int fuse_thread_state_setup(fuse_global_state_t *global_state);
+int fuse_global_state_setup(fuse_global_state_t *global_state);
 fuse_thread_state_t *fuse_thread_state_get(fuse_global_state_t *global_state);
 char *fuse_thread_state_get_reply_buffer(fuse_global_state_t *global_state, fuse_thread_state_t *fuse_thread_state, size_t size);
-void fuse_thread_state_free(fuse_global_state_t *global_state);
+void fuse_global_state_free(fuse_global_state_t *global_state);
 
 #endif
