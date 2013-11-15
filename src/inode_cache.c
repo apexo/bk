@@ -16,7 +16,6 @@ static inode_t *_inode_alloc(mempool_t *mempool, const char *ref, int ref_len) {
 		return NULL;
 	}
 
-	memset(inode, 0, sizeof(inode_t));
 	inode->ref_len = ref_len;
 	memcpy(&inode->ref, ref, ref_len);
 	return inode;
