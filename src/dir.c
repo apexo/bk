@@ -16,7 +16,7 @@
 
 #define RECURSION_LIMIT 100
 
-int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, size_t blksize) {
+int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, mtime_index_t *mtime_index, size_t blksize) {
 	memset(dws, 0, sizeof(dir_write_state_t));
 
 	if (!(dws->block = malloc(blksize))) {
@@ -45,6 +45,7 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, s
 
 	dws->args = args;
 	dws->index = index;
+	dws->mtime_index = mtime_index;
 	dws->blksize = blksize;
 	dws->path_capacity = PATH_MAX;
 
@@ -177,7 +178,7 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 		goto cleanup;
 	}
 
-	if (args->verbose) {
+	if (args->verbose || dws->mtime_index) {
 		const size_t d = dws->path_length ? 1 : 0;
 		const size_t namelen = strlen(name), req = dws->path_length + namelen + 1 + d;
 		if (req > dws->path_capacity) {
@@ -193,9 +194,9 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 			dws->path[dws->path_length] = '/';
 		}
 		memcpy(dws->path + dws->path_length + d, name, namelen + 1);
-		if (include && S_ISDIR(buf.st_mode)) {
-			dws->path_length += namelen + d;
-		}
+		dws->path_length += namelen + d;
+	}
+	if (args->verbose) {
 		const char *suffix1 = S_ISDIR(buf.st_mode) ? "/" : "";
 		const char *suffix2 = include ? "" : " (excluded)";
 		fprintf(stdout, "%s%s%s\n", dws->path, suffix1, suffix2);
@@ -211,7 +212,19 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 		goto cleanup;
 	}
 
+	int ref_len = 0;
+
 	if (S_ISREG(buf.st_mode)) {
+		if (dws->mtime_index) {
+			ref_len = mtime_index_lookup(dws->mtime_index, dws->path, dws->path_length, buf.st_size, buf.st_mtime, ref);
+			if (ref_len > 0) {
+				block_next->raw_bytes = buf.st_size;
+				dws->index->header.total_bytes += buf.st_size;
+				fprintf(stderr, "DEBUG: mtime match on %s\n", dws->path);
+				goto terrific;
+			}
+		}
+
 		fd2 = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME);
 		if (fd2 < 0) {
 			if (errno == ENOENT) {
@@ -263,11 +276,19 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 		goto cleanup;
 	}
 
-	int ref_len = block_flush(&dws->block_thread_state, block_next, dws->index, ref);
+	ref_len = block_flush(&dws->block_thread_state, block_next, dws->index, ref);
 	if (ref_len < 0) {
 		fprintf(stderr, "block_flush failed\n");
 		goto cleanup;
 	}
+
+	if (dws->mtime_index && S_ISREG(buf.st_mode)) {
+		if (mtime_index_add(dws->mtime_index, dws->path, dws->path_length, block_next->raw_bytes, buf.st_mtime, ref, ref_len)) {
+			fprintf(stderr, "mtime_index_add failed\n");
+			goto cleanup;
+		}
+	}
+terrific:
 
 	assert(ref_len >= 2);
 

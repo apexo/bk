@@ -7,6 +7,7 @@
 #include "types.h"
 
 #include "index.h"
+#include "mtime_index.h"
 #include "block_stack.h"
 
 #define USERNAMELEN_MAX 255
@@ -39,6 +40,7 @@ typedef struct dir_write_thread_state {
 
 	args_t *args;
 	index_t *index;
+	mtime_index_t *mtime_index;
 
 	size_t blksize;
 	char* block; // blksize
@@ -48,7 +50,7 @@ typedef struct dir_write_thread_state {
 	char *path; // path_capacity
 } dir_write_state_t;
 
-int dir_write_state_init(dir_write_state_t *dir_write_state, args_t *args, index_t *index, size_t blksize);
+int dir_write_state_init(dir_write_state_t *dir_write_state, args_t *args, index_t *index, mtime_index_t *mtime_index, size_t blksize);
 int dir_write(dir_write_state_t *dir_write_state, size_t depth, int fd, char *ref);
 void dir_write_state_free(dir_write_state_t *dir_write_state);
 

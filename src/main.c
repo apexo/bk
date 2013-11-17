@@ -18,6 +18,7 @@
 #include "fuse.h"
 #include "inode_cache.h"
 #include "mempool.h"
+#include "mtime_index.h"
 
 
 #define DEFAULT_BLOCK_SIZE 65536
@@ -229,7 +230,8 @@ int do_help_info(int argc, char *argv[]) {
 }
 
 int do_backup(int argc, char *argv[], int idx) {
-	int rc = 1, f_index = 0, f_filter = 0, f_dws = 0, dir_fd = -1, idx_fd = -1;
+	int rc = 1, f_index = 0, f_filter = 0, f_dws = 0, f_midx = 0, dir_fd = -1, idx_fd = -1, midx_fd = -1, ref_len = 0;
+	char *target = NULL;
 	optind = idx;
 
 	static struct option long_options[] = {
@@ -256,8 +258,14 @@ int do_backup(int argc, char *argv[], int idx) {
 	}
 	f_index = 1;
 
+	mtime_index_t mtime_index;
+	if (mtime_index_init(&mtime_index, "SALT", 4)) {
+		fprintf(stderr, "mtime_index_init failed\n");
+		goto out;
+	}
+	f_midx = 1;
+
 	size_t blksize = DEFAULT_BLOCK_SIZE;
-	char *target = NULL;
 	char *path = NULL;
 
 	while (1) {
@@ -310,7 +318,7 @@ int do_backup(int argc, char *argv[], int idx) {
 			} else if (!target) {
 				target = optarg;
 			} else {
-				if (add_ondiskidx_by_name(&index, optarg, 1)) {
+				if (add_ondiskidx_by_name(&index, &mtime_index, optarg, 1, 0)) {
 					fprintf(stderr, "add_ondiskidx_by_name failed\n");
 					goto out;
 				}
@@ -341,8 +349,7 @@ int do_backup(int argc, char *argv[], int idx) {
 			goto out;
 		}
 
-		idx_fd = open_outputs(&index, target, 0);
-		if (idx_fd < 0) {
+		if (open_outputs(&index, target, 0, &idx_fd, &midx_fd)) {
 			fprintf(stderr, "open_outputs failed\n");
 			goto out;
 		}
@@ -350,7 +357,7 @@ int do_backup(int argc, char *argv[], int idx) {
 
 	dir_write_state_t dws;
 
-	if (dir_write_state_init(&dws, &args, &index, blksize)) {
+	if (dir_write_state_init(&dws, &args, &index, &mtime_index, blksize)) {
 		fprintf(stderr, "dir_write_state_init failed\n");
 		goto out;
 	}
@@ -364,7 +371,6 @@ int do_backup(int argc, char *argv[], int idx) {
 	}
 
 	char ref[MAX_REF_SIZE];
-	int ref_len;
 	if ((ref_len = dir_write(&dws, 0, dir_fd, ref)) < 0) {
 		fprintf(stderr, "dir_write failed\n");
 		goto out;
@@ -375,13 +381,18 @@ int do_backup(int argc, char *argv[], int idx) {
 		goto out;
 	}
 
+	if (!args.list_only && mtime_index_write(&mtime_index, &index, midx_fd)) {
+		fprintf(stderr, "index_write failed\n");
+		goto out;
+	}
+
 	rc = 0;
 
 out:
 	if (dir_fd >= 0 && close(dir_fd)) {
 		perror("close failed");
 	}
-	if (idx_fd >= 0 && close_outputs(&index, idx_fd, target, rc ? 1 : 0)) {
+	if ((idx_fd >= 0 || midx_fd >= 0) && close_outputs(&index, idx_fd, midx_fd, target, rc ? 1 : 0)) {
 		fprintf(stderr, "close_outputs failed\n");
 	}
 	if (!rc) {
@@ -394,6 +405,9 @@ out:
 	}
 	if (f_filter) {
 		filter_free(&args.filter);
+	}
+	if (f_midx) {
+		mtime_index_free(&mtime_index);
 	}
 	if (f_index) {
 		index_free(&index);
@@ -461,7 +475,7 @@ int do_mount(int argc, char *argv[], int idx) {
 				break;
 			}
 
-			if (add_ondiskidx_by_name(&index, optarg, 0)) {
+			if (add_ondiskidx_by_name(&index, NULL, optarg, 0, 1)) {
 				fprintf(stderr, "add_ondiskidx_by_name failed\n");
 				goto out;
 			}
@@ -564,7 +578,7 @@ int do_info(int argc, char *argv[], int idx) {
 			return 1;
 		}
 
-		if (add_ondiskidx_by_name(&index, argv[idx], 0)) {
+		if (add_ondiskidx_by_name(&index, NULL, argv[idx], 1, 1)) {
 			fprintf(stderr, "add_ondiskidx_by_name failed: %s\n", argv[idx]);
 			index_free(&index);
 			continue;
