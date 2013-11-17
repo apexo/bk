@@ -121,6 +121,7 @@ int close_outputs(index_t *index, int idx_fd, char *name, int fatal_error) {
 
 	if (fatal_error) {
 		char *name_temp = malloc(name_len + 6);
+		memcpy(name_temp, name, name_len);
 		memcpy(name_temp + name_len, ".data", 6);
 		if (unlink(name_temp)) {
 			perror("error unlinking data file");
