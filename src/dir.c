@@ -135,30 +135,103 @@ int _dir_write_dir(dir_write_state_t *dws, size_t depth, block_t *block, int fd)
 	return 0;
 }
 
-int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int dirfd, char *name) {
+static int _update_path(dir_write_state_t *dws, char *name) {
+	const size_t d = dws->path_length ? 1 : 0;
+	const size_t namelen = strlen(name), req = dws->path_length + namelen + 1 + d;
+	if (req > dws->path_capacity) {
+		char *path = realloc(dws->path, req);
+		if (!path) {
+			perror("out of memory");
+			return -1;
+		}
+		dws->path = path;
+		dws->path_capacity = req;
+	}
+	if (d) {
+		dws->path[dws->path_length] = '/';
+	}
+	memcpy(dws->path + dws->path_length + d, name, namelen + 1);
+	dws->path_length += namelen + d;
+	return 0;
+}
+
+static int _stat(dir_write_state_t *dws, int dirfd, char *name, int *fd, struct stat *stat) {
+	*fd = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_PATH);
+	if (*fd < 0) {
+		char err[256];
+		fprintf(stderr, "openat %s failed: %s\n", dws->path, strerror_r(errno, err, sizeof(err)));
+		if (errno == ENOENT) {
+			return 0;
+		} else {
+			return -1;
+		}
+	}
+
+	if (fstatat(*fd, "", stat, AT_NO_AUTOMOUNT | AT_EMPTY_PATH)) {
+		char err[256];
+		fprintf(stderr, "fstatat %s failed: %s\n", dws->path, strerror_r(errno, err, sizeof(err)));
+		if ((errno == ENOENT) || (errno == EACCES)) {
+			return 0;
+		} else {
+			return -1;
+		}
+	}
+
+	if (S_ISLNK(stat->st_mode)) {
+		return 1;
+	}
+
+	if (close(*fd)) {
+		*fd = -1;
+		fprintf(stderr, "close failed\n");
+		return -1;
+	}
+
+	*fd = -1;
+	return 1;
+}
+
+static int _open(dir_write_state_t *dws, int dirfd, char *name, int *fd, struct stat *stat) {
+	if (S_ISREG(stat->st_mode)) {
+		*fd = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME);
+	} else if (S_ISDIR(stat->st_mode)) {
+		*fd = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_DIRECTORY);
+	} else {
+		*fd = -1;
+		return 1;
+	}
+
+	if (*fd < 0) {
+		char err[256];
+		fprintf(stderr, "openat %s failed: %s\n", dws->path, strerror_r(errno, err, sizeof(err)));
+		if ((errno == ENOENT) || (errno == ENOTDIR) || (errno == EACCES)) {
+			return 0;
+		} else {
+			return -1;
+		}
+	}
+
+	return 1;
+}
+
+static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int dirfd, char *name) {
 	if (*name && *name == '.' && (!*(name+1) || (*(name+1) == '.' && !*(name+2)))) {
 		return 0;
 	}
 
 	args_t *args = dws->args;
-	int fd = 0, fd2 = 0, rc = -1;
+	int fd = 0, rc = -1;
 	size_t org_path_length = dws->path_length, org_depth = args->filter.depth;
 
-	fd = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_PATH);
-	if (fd < 0) {
-		if (errno == ENOENT) {
-			rc = 0;
-			goto cleanup;
-		}
-		perror("openat failed");
-		fprintf(stderr, "openat %d/%s failed\n", dirfd, name);
+	if (_update_path(dws, name)) {
+		fprintf(stderr, "_update_path failed\n");
 		goto cleanup;
 	}
 
 	struct stat buf;
-	if (fstatat(fd, "", &buf, AT_NO_AUTOMOUNT | AT_EMPTY_PATH)) {
-		perror("fstatat failed");
-		fprintf(stderr, "fstatat %d/%s failed\n", dirfd, name);
+	int ret;
+	if ((ret = _stat(dws, dirfd, name, &fd, &buf)) <= 0) {
+		rc = ret;
 		goto cleanup;
 	}
 
@@ -178,24 +251,6 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 		goto cleanup;
 	}
 
-	if (args->verbose || dws->mtime_index) {
-		const size_t d = dws->path_length ? 1 : 0;
-		const size_t namelen = strlen(name), req = dws->path_length + namelen + 1 + d;
-		if (req > dws->path_capacity) {
-			char *path = realloc(dws->path, req);
-			if (!path) {
-				perror("out of memory");
-				goto cleanup;
-			}
-			dws->path = path;
-			dws->path_capacity = req;
-		}
-		if (d) {
-			dws->path[dws->path_length] = '/';
-		}
-		memcpy(dws->path + dws->path_length + d, name, namelen + 1);
-		dws->path_length += namelen + d;
-	}
 	if (args->verbose) {
 		const char *suffix1 = S_ISDIR(buf.st_mode) ? "/" : "";
 		const char *suffix2 = include ? "" : " (excluded)";
@@ -225,17 +280,11 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 			}
 		}
 
-		fd2 = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME);
-		if (fd2 < 0) {
-			if (errno == ENOENT) {
-				rc = 0;
-				goto cleanup;
-			}
-			perror("openat failed");
-			fprintf(stderr, "openat %d/%s failed [2]\n", dirfd, name);
+		if ((ret = _open(dws, dirfd, name, &fd, &buf)) <= 0) {
+			rc = ret;
 			goto cleanup;
 		}
-		if (_dir_write_file(dws, depth + 1, block_next, fd2)) {
+		if (_dir_write_file(dws, depth + 1, block_next, fd)) {
 			fprintf(stderr, "_dir_write_file failed: %s\n", name);
 			goto cleanup;
 		}
@@ -243,17 +292,11 @@ int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int d
 			fprintf(stderr, "file size changed: %zd -> %zd: %s\n", buf.st_size, block_next->raw_bytes, name);
 		}
 	} else if (S_ISDIR(buf.st_mode)) {
-		fd2 = openat(dirfd, name, O_NOFOLLOW | O_RDONLY | O_NOATIME | O_DIRECTORY);
-		if (fd2 < 0) {
-			if (errno == ENOENT) {
-				rc = 0;
-				goto cleanup;
-			}
-			perror("openat failed");
-			fprintf(stderr, "openat %d/%s failed [2]\n", dirfd, name);
+		if ((ret = _open(dws, dirfd, name, &fd, &buf)) <= 0) {
+			rc = ret;
 			goto cleanup;
 		}
-		if (_dir_write_dir(dws, depth + 1, block_next, fd2)) {
+		if (_dir_write_dir(dws, depth + 1, block_next, fd)) {
 			fprintf(stderr, "_dir_write_dir failed: %s\n", name);
 			goto cleanup;
 		}
@@ -347,10 +390,7 @@ terrific:
 	rc = 0;
 
 cleanup:
-	if (fd2 > 0 && close(fd2)) {
-		perror("close failed");
-	}
-	if (fd > 0 && close(fd)) {
+	if (fd >= 0 && close(fd)) {
 		perror("close failed");
 	}
 	dws->path_length = org_path_length;
