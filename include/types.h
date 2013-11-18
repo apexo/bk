@@ -20,6 +20,8 @@ typedef struct args {
 	int list_only;
 	int xdev;
 	int dev;
+	int create_midx;
+	int dont_use_midx;
 	filter_t filter;
 
 	size_t path_capacity;

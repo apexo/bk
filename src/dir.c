@@ -270,12 +270,11 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 	int ref_len = 0;
 
 	if (S_ISREG(buf.st_mode)) {
-		if (dws->mtime_index) {
+		if (!args->dont_use_midx) {
 			ref_len = mtime_index_lookup(dws->mtime_index, dws->path, dws->path_length, buf.st_size, buf.st_mtime, ref);
 			if (ref_len > 0) {
 				block_next->raw_bytes = buf.st_size;
 				dws->index->header.total_bytes += buf.st_size;
-				fprintf(stderr, "DEBUG: mtime match on %s\n", dws->path);
 				goto terrific;
 			}
 		}
@@ -325,7 +324,7 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 		goto cleanup;
 	}
 
-	if (dws->mtime_index && S_ISREG(buf.st_mode)) {
+	if (args->create_midx && S_ISREG(buf.st_mode)) {
 		if (mtime_index_add(dws->mtime_index, dws->path, dws->path_length, block_next->raw_bytes, buf.st_mtime, ref, ref_len)) {
 			fprintf(stderr, "mtime_index_add failed\n");
 			goto cleanup;

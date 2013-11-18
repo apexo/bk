@@ -162,21 +162,21 @@ int close_outputs(index_t *index, int idx_fd, int midx_fd, char *name, int fatal
 		char *name_temp = malloc(name_len + 6);
 		memcpy(name_temp, name, name_len);
 		memcpy(name_temp + name_len, ".data", 6);
-		if (unlink(name_temp)) {
+		if (index->data_fd >= 0 && unlink(name_temp)) {
 			perror("error unlinking data file");
 			fprintf(stderr, "error unlinking data file %s\n", name_temp);
 			rc = -1;
 		}
 
 		memcpy(name_temp + name_len, ".midx", 6);
-		if (unlink(name_temp)) {
+		if (midx_fd >= 0 && unlink(name_temp)) {
 			perror("error unlinking data file");
 			fprintf(stderr, "error unlinking mtime index file %s\n", name_temp);
 			rc = -1;
 		}
 
 		memcpy(name_temp + name_len, ".idx", 5);
-		if (unlink(name_temp)) {
+		if (idx_fd >= 0 && unlink(name_temp)) {
 			perror("error unlinking index file");
 			fprintf(stderr, "error unlinking index file %s\n", name_temp);
 			rc = -1;
@@ -184,17 +184,17 @@ int close_outputs(index_t *index, int idx_fd, int midx_fd, char *name, int fatal
 		free(name_temp);
 	}
 	
-	if (close(idx_fd)) {
+	if (idx_fd >= 0 && close(idx_fd)) {
 		perror("error closing index file");
 		rc = -1;
 	}
 
-	if (close(midx_fd)) {
+	if (midx_fd >= 0 && close(midx_fd)) {
 		perror("error closing mtime index file");
 		rc = -1;
 	}
 
-	if (close(index->data_fd)) {
+	if (index->data_fd >= 0 && close(index->data_fd)) {
 		perror("error closing data file");
 		rc = -1;
 	}

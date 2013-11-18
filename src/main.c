@@ -207,11 +207,13 @@ int do_help(int argc, char *argv[]) {
 }
 
 int do_help_backup(int argc, char *argv[]) {
-	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
+	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -v                      Verbose output. Print names of files as they are being backed up.\n");
 	fprintf(stdout, "   -n,--no-act             Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
 	fprintf(stdout, "   --xdev                  Do not descend into directories on other filesystems.\n");
+	fprintf(stdout, "   --create-midx           Create midx for fast, mtime-based deduplication. Potentially unsafe, read the docs! Default: disabled.\n");
+	fprintf(stdout, "   --dont-use-midx         Don't use existing midx. Default: use existing an midx.\n");
 	fprintf(stdout, "   -E,--exclude <pattern>  Exclude files/directories. E.g.: home/*/.cache, **/.*.swp\n");
 	fprintf(stdout, "   -I,--include <pattern>  Include files/directories.\n");
 	fprintf(stdout, "   --blksize <n>           Set block size; valid values for n range from 0 (4 KiByte) to 19 (2 GiByte); 4 (64 kiByte) is the default\n");
@@ -241,6 +243,9 @@ int do_backup(int argc, char *argv[], int idx) {
 		{"exclude", required_argument, 0, 0 },
 		{"include", required_argument, 0, 0 },
 		{"blksize", required_argument, 0, 0 },
+
+		{"create-midx",   no_argument, 0, 0 },
+		{"dont-use-midx", no_argument, 0, 0 },
 		{0,         0,                 0, 0 }
 	};
 
@@ -320,13 +325,21 @@ int do_backup(int argc, char *argv[], int idx) {
 			blksize = 4096 << v;
 		}
 
+		if (!c && option_index == 5) {
+			args.create_midx = 1;
+		}
+
+		if (!c && option_index == 6) {
+			args.dont_use_midx = 1;
+		}
+
 		if (c == 1) {
 			if (!path) {
 				path = optarg;
 			} else if (!target) {
 				target = optarg;
 			} else {
-				if (add_ondiskidx_by_name(&index, &mtime_index, optarg, 1, 0)) {
+				if (add_ondiskidx_by_name(&index, &mtime_index, optarg, 1, args.dont_use_midx)) {
 					fprintf(stderr, "add_ondiskidx_by_name failed\n");
 					goto out;
 				}
@@ -357,7 +370,7 @@ int do_backup(int argc, char *argv[], int idx) {
 			goto out;
 		}
 
-		if (open_outputs(&index, target, 0, &idx_fd, &midx_fd)) {
+		if (open_outputs(&index, target, 0, &idx_fd, args.create_midx ? &midx_fd : NULL)) {
 			fprintf(stderr, "open_outputs failed\n");
 			goto out;
 		}
@@ -384,12 +397,12 @@ int do_backup(int argc, char *argv[], int idx) {
 		goto out;
 	}
 
-	if (!args.list_only && index_write(&index, idx_fd)) {
+	if (idx_fd >= 0 && index_write(&index, idx_fd)) {
 		fprintf(stderr, "index_write failed\n");
 		goto out;
 	}
 
-	if (!args.list_only && mtime_index_write(&mtime_index, &index, midx_fd)) {
+	if (midx_fd >= 0 && mtime_index_write(&mtime_index, &index, midx_fd)) {
 		fprintf(stderr, "index_write failed\n");
 		goto out;
 	}
