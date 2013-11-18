@@ -24,17 +24,14 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 	}
 
 	if (!(dws->path = malloc(PATH_MAX))) {
-		perror("out of memory");
 		goto oom;
 	}
 
 	if (!(dws->block_thread_state.pack = malloc(LZ4_compressBound(blksize)))) {
-		perror("out of memory");
 		goto oom;
 	}
 
 	if (!(dws->block_thread_state.crypt = malloc(blksize))) {
-		perror("out of memory");
 		goto oom;
 	}
 
