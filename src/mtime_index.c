@@ -240,13 +240,13 @@ static int _mtime_index_range_write(mtime_index_t *mi, index_t *index, mtime_ind
 	mi->header.num_entries = be64toh(range->num_entries);
 	// TODO: _mtime_index_hash(mi, range, num_pages) -> mtime_index_hash
 
-	if (write_chunked(fd, (char*)&mi->header, PAGE_SIZE)) {
-		fprintf(stderr, "write_chunked failed\n");
+	if (write_all(fd, (char*)&mi->header, PAGE_SIZE)) {
+		fprintf(stderr, "write_all failed\n");
 		return -1;
 	}
 
-	if (write_chunked(fd, (char*)range->pages, PAGE_SIZE * num_pages)) {
-		fprintf(stderr, "write_chunked failed\n");
+	if (write_all(fd, (char*)range->pages, PAGE_SIZE * num_pages)) {
+		fprintf(stderr, "write_all failed\n");
 		return -1;
 	}
 
