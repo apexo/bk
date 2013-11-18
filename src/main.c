@@ -278,6 +278,8 @@ int do_backup(int argc, char *argv[], int idx) {
 	}
 	f_midx = 1;
 
+	memset(salt, 0, SALT_LENGTH);
+
 	size_t blksize = DEFAULT_BLOCK_SIZE;
 	char *path = NULL;
 
