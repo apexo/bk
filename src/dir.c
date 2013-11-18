@@ -248,9 +248,11 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 		goto cleanup;
 	}
 
+	int xdev = S_ISDIR(buf.st_mode) && args->xdev && args->dev != buf.st_dev;
+
 	if (args->verbose) {
 		const char *suffix1 = S_ISDIR(buf.st_mode) ? "/" : "";
-		const char *suffix2 = include ? "" : " (excluded)";
+		const char *suffix2 = include ? (xdev ? " (xdev)": "") : " (excluded)";
 		fprintf(stdout, "%s%s%s\n", dws->path, suffix1, suffix2);
 	}
 
@@ -265,6 +267,10 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 	}
 
 	int ref_len = 0;
+
+	if (xdev) {
+		goto skip;
+	}
 
 	if (S_ISREG(buf.st_mode)) {
 		if (!args->dont_use_midx) {
@@ -315,6 +321,7 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 		goto cleanup;
 	}
 
+skip:
 	ref_len = block_flush(&dws->block_thread_state, block_next, dws->index, ref, 0);
 	if (ref_len < 0) {
 		fprintf(stderr, "block_flush failed\n");
@@ -400,6 +407,16 @@ int dir_write(dir_write_state_t *dws, size_t depth, int fd, char *ref) {
 	if (!block) {
 		fprintf(stderr, "block_stack_get failed\n");
 		return -1;
+	}
+
+	struct stat buf;
+	if (dws->args->xdev) {
+		if (fstat(fd, &buf)) {
+			perror("fstat failed\n");
+			return -1;
+		}
+
+		dws->args->dev = buf.st_dev;
 	}
 
 	block->raw_bytes = 0;
