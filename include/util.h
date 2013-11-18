@@ -11,5 +11,7 @@ int close_outputs(index_t *index, int idx_fd, int midx_fd, char *name, int fatal
 int parse_hex_reference(const char *hexref, char *ref);
 void hex_format(char *dst, const char *value, size_t bytes);
 int write_all(int fd, char* data, size_t size);
+ssize_t read_upto(int fd, char* data, size_t size);
+ssize_t read_exactly(int fd, char* data, size_t size);
 
 #endif

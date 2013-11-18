@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -274,6 +275,42 @@ int write_all(int fd, char* data, size_t size) {
 		assert(bytes_written <= chunk);
 		size -= bytes_written;
 		data += bytes_written;
+	}
+	return 0;
+}
+
+ssize_t read_upto(int fd, char* data, size_t size) {
+	if (size > SSIZE_MAX) {
+		fprintf(stderr, "requested size too large\n");
+		return -1;
+	}
+
+	size_t remaining = size;
+
+	while (remaining) {
+		const size_t chunk = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+		const ssize_t bytes_read = read(fd, data, chunk);
+		assert(bytes_read <= chunk);
+		if (bytes_read < 0) {
+			perror("read failed");
+			return -1;
+		} else if (!bytes_read) {
+			return size - remaining;
+		}
+		remaining -= bytes_read;
+		data += bytes_read;
+	}
+	return size;
+}
+
+ssize_t read_exactly(int fd, char* data, size_t size) {
+	ssize_t result = read_upto(fd, data, size);
+	if (result < 0) {
+		fprintf(stderr, "read_upto failed\n");
+		return -1;
+	} else if (result < size) {
+		fprintf(stderr, "unexpected EOF\n");
+		return -1;
 	}
 	return 0;
 }

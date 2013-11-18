@@ -19,6 +19,7 @@
 #include "inode_cache.h"
 #include "mempool.h"
 #include "mtime_index.h"
+#include "salt.h"
 
 
 #define DEFAULT_BLOCK_SIZE 65536
@@ -251,15 +252,22 @@ int do_backup(int argc, char *argv[], int idx) {
 	}
 	f_filter = 1;
 
+	char salt[SALT_LENGTH];
+	ssize_t salt_length = get_salt(salt, SALT_LENGTH);
+	if (salt_length < 0) {
+		fprintf(stderr, "get_salt failed\n");
+		goto out;
+	}
+
 	index_t index;
-	if (index_init(&index, 0, "SALT", 4)) {
+	if (index_init(&index, 0, salt, salt_length)) {
 		fprintf(stderr, "index_init failed\n");
 		goto out;
 	}
 	f_index = 1;
 
 	mtime_index_t mtime_index;
-	if (mtime_index_init(&mtime_index, "SALT", 4)) {
+	if (mtime_index_init(&mtime_index, salt, salt_length)) {
 		fprintf(stderr, "mtime_index_init failed\n");
 		goto out;
 	}
