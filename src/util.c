@@ -259,7 +259,7 @@ void hex_format(char *dst, const char *value, size_t bytes) {
 
 #define CHUNK_SIZE (4096*1024)
 
-int write_chunked(int fd, char* data, size_t size) {
+int write_all(int fd, char* data, size_t size) {
 	while (size) {
 		const size_t chunk = size > CHUNK_SIZE ? CHUNK_SIZE : size;
 		const ssize_t bytes_written = write(fd, data, chunk);

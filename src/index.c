@@ -523,13 +523,13 @@ static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 	_index_finish_stats(index);
 	_index_hash(index, range, num_pages);
 
-	if (write_chunked(fd, (char*)&index->header, PAGE_SIZE)) {
-		fprintf(stderr, "write_chunked failed\n");
+	if (write_all(fd, (char*)&index->header, PAGE_SIZE)) {
+		fprintf(stderr, "write_all failed\n");
 		return -1;
 	}
 
-	if (write_chunked(fd, (char*)range->pages, PAGE_SIZE * num_pages)) {
-		fprintf(stderr, "write_chunked failed\n");
+	if (write_all(fd, (char*)range->pages, PAGE_SIZE * num_pages)) {
+		fprintf(stderr, "write_all failed\n");
 		return -1;
 	}
 
