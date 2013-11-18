@@ -159,6 +159,10 @@ static ssize_t _read_salt(int path, char *salt, size_t max_len) {
 	if (n < 0) {
 		fprintf(stderr, "read_upto failed\n");
 	}
+
+	if (close(fd)) {
+		perror("close failed");
+	}
 	return n;
 }
 
