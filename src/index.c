@@ -9,6 +9,7 @@
 #include <string.h>
 #include <openssl/sha.h>
 
+#include "util.h"
 #include "block.h"
 #include "index.h"
 
@@ -499,49 +500,6 @@ static void _index_hash(index_t *index, index_range_t *range, size_t num_pages) 
 	SHA256_Final((unsigned char*)index->header.index_hash, &ctx);
 }
 
-static int _index_write_header(int fd, index_t *index, index_range_t *range) {
-	size_t hdr_size = PAGE_SIZE;
-	char *hdr = (char*)&index->header;
-
-	while (hdr_size) {
-		const ssize_t bytes_written = write(fd, hdr, hdr_size);
-		if (bytes_written < 0) {
-			perror("write failed");
-			return -1;
-		}
-		if (!bytes_written) {
-			fprintf(stderr, "error writing index - disk full?\n");
-			return -1;
-		}
-		assert(bytes_written <= hdr_size);
-		hdr_size -= bytes_written;
-		hdr += bytes_written;
-	}
-	return 0;
-}
-
-static int _index_write_data(int fd, index_t *index, index_range_t *range, size_t num_pages) {
-	size_t idx_size = num_pages * PAGE_SIZE;
-	char *data = (char*)range->pages;
-
-	while (idx_size) {
-		const size_t chunk = idx_size > CHUNK_SIZE ? CHUNK_SIZE : idx_size;
-		const ssize_t bytes_written = write(fd, data, chunk);
-		if (bytes_written < 0) {
-			perror("write failed");
-			return -1;
-		}
-		if (!bytes_written) {
-			fprintf(stderr, "error writing index - disk full?\n");
-			return -1;
-		}
-		assert(bytes_written <= chunk);
-		idx_size -= bytes_written;
-		data += bytes_written;
-	}
-	return 0;
-}
-
 static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 	if (index->blksize > UINT32_MAX) {
 		fprintf(stderr, "block size out of bounds\n");
@@ -549,7 +507,6 @@ static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 	}
 
 	index->header.num_entries = be64toh(range->num_entries);
-	// TODO: add external references
 
 	if (range->num_entries > SIZE_MAX - ENTRIES_PER_PAGE + 1) {
 		fprintf(stderr, "index too big\n");
@@ -566,13 +523,13 @@ static int _index_range_write(index_t *index, index_range_t *range, int fd) {
 	_index_finish_stats(index);
 	_index_hash(index, range, num_pages);
 
-	if (_index_write_header(fd, index, range)) {
-		fprintf(stderr, "_index_write_header failed\n");
+	if (write_chunked(fd, (char*)&index->header, PAGE_SIZE)) {
+		fprintf(stderr, "write_chunked failed\n");
 		return -1;
 	}
 
-	if (_index_write_data(fd, index, range, num_pages)) {
-		fprintf(stderr, "_index_write_data failed\n");
+	if (write_chunked(fd, (char*)range->pages, PAGE_SIZE * num_pages)) {
+		fprintf(stderr, "write_chunked failed\n");
 		return -1;
 	}
 
