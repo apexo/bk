@@ -416,7 +416,7 @@ out:
 	if ((idx_fd >= 0 || midx_fd >= 0) && close_outputs(&index, idx_fd, midx_fd, target, rc ? 1 : 0)) {
 		fprintf(stderr, "close_outputs failed\n");
 	}
-	if (!rc) {
+	if (!rc && !args.list_only) {
 		char hex_ref[MAX_REF_SIZE * 2 + 1];
 		hex_format(hex_ref, ref, ref_len);
 		fprintf(stdout, "%s\n", hex_ref);
