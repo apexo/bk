@@ -201,7 +201,7 @@ static int _open(dir_write_state_t *dws, int dirfd, char *name, int *fd, struct 
 	if (*fd < 0) {
 		char err[256];
 		fprintf(stderr, "openat %s failed: %s\n", dws->path, strerror_r(errno, err, sizeof(err)));
-		if ((errno == ENOENT) || (errno == ENOTDIR) || (errno == EACCES)) {
+		if ((errno == ENOENT) || (errno == ENOTDIR) || (errno == EACCES) || (errno == EPERM)) {
 			return 0;
 		} else {
 			return -1;
