@@ -363,9 +363,9 @@ int block_append(block_thread_state_t *block_thread_state, block_t *block, index
 	return 0;
 }
 
-int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char* ref) {
+int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char* ref, int force_indirection) {
 	size_t indir = 0;
-	while (indir < block->indirection || (indir == block->indirection && block->len[indir] > INLINE_THRESHOLD)) {
+	while (indir < block->indirection || (indir == block->indirection && block->len[indir] > INLINE_THRESHOLD) || (force_indirection && !indir)) {
 		if (block->len[indir]) {
 			if (_block_flush(block_thread_state, block, index, indir, block->data[indir], block->len[indir])) {
 				fprintf(stderr, "_block_flush failed\n");

@@ -319,7 +319,7 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 		goto cleanup;
 	}
 
-	ref_len = block_flush(&dws->block_thread_state, block_next, dws->index, ref);
+	ref_len = block_flush(&dws->block_thread_state, block_next, dws->index, ref, 0);
 	if (ref_len < 0) {
 		fprintf(stderr, "block_flush failed\n");
 		goto cleanup;
@@ -414,7 +414,7 @@ int dir_write(dir_write_state_t *dws, size_t depth, int fd, char *ref) {
 		return -1;
 	}
 
-	int ref_len = block_flush(&dws->block_thread_state, block, dws->index, ref);
+	int ref_len = block_flush(&dws->block_thread_state, block, dws->index, ref, 1);
 	if (ref_len < 0) {
 		fprintf(stderr, "block_flush failed\n");
 		return -1;

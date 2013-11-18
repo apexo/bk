@@ -28,7 +28,7 @@ typedef struct block {
 int block_init(block_t *block, size_t block_size);
 void block_free(block_t *block);
 int block_append(block_thread_state_t *block_thread_state, block_t *block, index_t *index, const char *data, size_t size);
-int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char* ref);
+int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char* ref, int force_indirection);
 
 int block_ref_length(const char *ref);
 
