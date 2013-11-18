@@ -91,7 +91,7 @@ int open_outputs(index_t *index, char *name, int force, int *idx_fd, int *midx_f
 
 	memcpy(name_temp, name, name_len);
 
-	const int flags = O_WRONLY | O_CREAT | __O_CLOEXEC | (force ? O_TRUNC : O_EXCL);
+	const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (force ? O_TRUNC : O_EXCL);
 
 	memcpy(name_temp + name_len, ".idx", 5);
 	*idx_fd = open(name_temp, flags, 0666);
