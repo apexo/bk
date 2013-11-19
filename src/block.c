@@ -7,6 +7,7 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <lz4.h>
+#include <lz4hc.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -181,8 +182,8 @@ static void _block_hash2(index_t *index, const block_key_t encryption_key, block
 // only store compressed data if compressible by at least 5%
 #define IS_COMPRESSIBLE(size, compressed) ((compressed) && ((compressed) < (size)) && ((size) - (compressed) > (size) / 20))
 
-static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size) {
-	int compressed = LZ4_compress((const char*)src, (char*)dst, n);
+static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size, int lz4hc) {
+	int compressed = lz4hc ? LZ4_compressHC(src, dst, n) : LZ4_compress(src, dst, n);
 	if (IS_COMPRESSIBLE(n, compressed)) {
 		*compressed_block_size = compressed;
 		return dst;
@@ -275,7 +276,7 @@ static int _block_dedup(block_thread_state_t *block_thread_state, block_t *block
 	index->header.total_bytes += block_size;
 
 	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
-		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, &compressed_block_size);
+		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, &compressed_block_size, block_thread_state->lz4hc);
 		if (_block_crypt(compressed_data, compressed_block_size, block_thread_state->crypt, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
 			return -1;

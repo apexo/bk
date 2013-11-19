@@ -9,6 +9,7 @@
 typedef struct block_thread_state {
 	char* pack; // LZ4_compressBound(blksize), in locked memory
 	char* crypt; // blksize
+	int lz4hc;
 } block_thread_state_t;
 
 typedef struct block {

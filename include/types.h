@@ -23,6 +23,7 @@ typedef struct args {
 	int create_midx;
 	int dont_use_midx;
 	int dont_save_atime;
+	int lz4hc;
 	filter_t filter;
 
 	size_t path_capacity;

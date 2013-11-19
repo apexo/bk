@@ -45,6 +45,7 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 	dws->mtime_index = mtime_index;
 	dws->blksize = blksize;
 	dws->path_capacity = PATH_MAX;
+	dws->block_thread_state.lz4hc = args->lz4hc;
 
 	return 0;
 
