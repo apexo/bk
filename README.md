@@ -81,3 +81,8 @@ Salt
 ----
 
 The salt is stored in ~/.config/bk/bk.salt. If the salt file doesn't exist, it will be created by bk backup. Deduplication (via .idx and/or .midx) only works against archives that have been created with the same salt. Knowledge of the salt allows certain attacks against .idx (an attacker may query the index to find out if it contains a block of data known by the attacker) and full decryption of your data via .midx. As long not both, salt and midx, leave the system, this shouldn't be a problem (but it generally is not required for any of them to leave the system). Of course, not enabling .midx is even more secure.
+
+Caveat
+------
+
+We're using O\_NOATIME to open directories and files. This only works if you're the owner of the files/directories, root, or have the capability CAP\_FOWNER. If one of those criteria is not met, you will receive "Operation not permitted" error messages (and those files/directories will NOT get backed up).
