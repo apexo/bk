@@ -1,0 +1,49 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+build:
+
+build-indep:
+
+build-arch:
+	dh_testdir
+	dh_prep
+
+	$(MAKE)
+
+binary: binary-indep binary-arch
+
+binary-indep: build-indep
+
+binary-arch: build-arch
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs 
+	dh_installdocs README.md
+	dh_install bk usr/sbin/
+#	dh_installman
+	dh_strip
+	dh_compress
+#	dh_fixperms
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+clean:
+	dh_testdir
+	dh_testroot
+
+	-$(MAKE) clean
+
+	dh_clean 
+
+.PHONY: build build-indep build-arch binary binary-indep binary-arch clean
