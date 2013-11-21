@@ -34,11 +34,10 @@ int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const char *ref, 
 	cache->mempool = mempool;
 
 	for (size_t i = 0; i < 2; i++) {
-		if (!(cache->table[i] = malloc(INODE_ENTRIES_MIN * sizeof(inode_t*)))) {
+		if (!(cache->table[i] = calloc(INODE_ENTRIES_MIN, sizeof(inode_t*)))) {
 			perror("out of memory");
 			goto err;
 		}
-		memset(cache->table[i], 0, INODE_ENTRIES_MIN * sizeof(inode_t*));
 	}
 
 	inode_t *root = _inode_alloc(mempool, ref, ref_len);
@@ -105,12 +104,11 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 				fprintf(stderr, "inode cache too large\n");
 				goto out;
 			}
-			cache->table[table_idx] = malloc(n * sizeof(inode_t*));
+			cache->table[table_idx] = calloc(n, sizeof(inode_t*));
 			if (!cache->table[table_idx]) {
 				perror("out of memory");
 				goto out;
 			}
-			memset(cache->table[table_idx], 0, n * sizeof(inode_t*));
 			cache->size[table_idx] = n;
 		}
 		if (ino < cache->size[table_idx]) {

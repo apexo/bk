@@ -167,12 +167,11 @@ int dir_index_add(dir_index_t *dir_index, const char *name, size_t name_len, uin
 }
 
 dir_index_range_t *dir_index_merge(dir_index_t* dir_index, mempool_t *mempool) {
-	dir_index_range_t *result = malloc(sizeof(dir_index_range_t));
+	dir_index_range_t *result = calloc(1, sizeof(dir_index_range_t));
 	if (!result) {
 		perror("out of memory");
 		return NULL;
 	}
-	memset(result, 0, sizeof(dir_index_range_t));
 
 	dir_index_range_t *range = dir_index->range;
 

@@ -72,12 +72,11 @@ static int _index_ondiskidx_alloc(ondiskidx_t *ondiskidx, size_t num_entries) {
 	}
 
 	const size_t bitmap_size = (num_entries + 7) / 8;
-	uint8_t *bitmap = malloc(bitmap_size);
+	uint8_t *bitmap = calloc(1, bitmap_size);
 	if (!bitmap) {
 		perror("out of memory");
 		return -1;
 	}
-	memset(bitmap, 0, bitmap_size);
 
 #ifdef MULTITHREADED
 	if (pthread_mutex_init(&ondiskidx->mutex, NULL)) {
@@ -257,12 +256,11 @@ static int _index_workidx_grow(index_t *index, size_t limit) {
 
 	workidx[nf].num_entries = 0;
 	workidx[nf].limit = limit;
-	workidx[nf].pages = (index_page_t*)malloc(num_pages * PAGE_SIZE);
+	workidx[nf].pages = (index_page_t*)calloc(num_pages, PAGE_SIZE);
 	if (!workidx[nf].pages) {
 		perror("out of memory");
 		return -1;
 	}
-	memset(workidx[nf].pages, 0, num_pages * PAGE_SIZE);
 	index->num_workidx++;
 
 	return 0;
