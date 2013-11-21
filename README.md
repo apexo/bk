@@ -75,7 +75,7 @@ will back up everything except /proc, /dev, and /sys.
 
     bk backup -E\*\*/.cache -Ihome -E\*\* / archive
 
-will back up all home directories, but no files or directories (incl. their content) named .cache. You may want to use the --no-act option to verify that your filters behave as intended. You will need to escape wildcards to avoid them by expanded by the shell, either by escaping or single-quoting arguments with wildcars or by disabling expansion, e.g. via set -f.
+will back up all home directories, but no files or directories (incl. their content) named .cache. You may want to use the --no-act option to verify that your filters behave as intended. You will need to escape wildcards to avoid having them by expanded by the shell, either by escaping or single-quoting arguments with wildcards or by disabling expansion, e.g. via set -f.
 
 Backup Internals
 ----------------
