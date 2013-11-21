@@ -18,7 +18,7 @@ A bk archive consists of up to four artifacts:
 
 - an index file (.idx); this is required for deduplication (which is also used for differential backup) and for data recovery, this file does not contain sensitive information
 - a data file (.data); required for recovery, this file is encrypted
-- the root reference; required for recovery, this is usually very small and should be kept safe (i.e.: encrypted) since it contains the decryption key to all data
+- the root reference; required for recovery, this is very small and should be kept safe (i.e.: encrypted) since it contains the decryption key to all data
 - optionally, an .midx file; this is only required for fast, mtime-based deduplication, it contains potentially sensitive information; should never leave the host on which the backup was created; the midx is disabled by default if you want it and understand the security implications use --create-midx
 
 Create standalone archive
@@ -30,11 +30,11 @@ Does a backup of the whole filesystem (/) and creates two files: archive.idx and
 
     bk backup / archive | gpg -a -e -r KEYID >archive.root
 
-Of course, backing up the root filesystem with all special files is usually a bad idea. A simple fix may be to just exclude contents of directories on other filesystems via --xdev:
+Of course, backing up the root filesystem with all special files is a bad idea. A simple fix may be to just exclude contents of directories on other filesystems via --xdev:
 
     bk backup --xdev / archive | gpg -a -e -r KEYID >archive.root
 
-This will still backup the generated backup itself, which is usually a bad idea. You will want to exclude the folder in which the backups are generated, e.g. if you're working in /var/local/backups:
+This will still backup the generated backup itself, which is a bad idea. You will want to exclude the folder in which the backups are generated, e.g. if you're working in /var/local/backups:
 
     bk backup --xdev -Evar/local/backups / archive | gpg -a -e -r KEYID >archive.root
 
@@ -50,11 +50,11 @@ Recovery
 
 There's only one way to get your data out: mount the archive (via FUSE).
 
-For recovery you need the index and data files of the generated archive and of all referenced archives. You also need the root reference that was generated together with the archive. If you have stored the root refrerence in archive.root, as recommended above, your command line might look like this:
+For recovery you need the index and data files of the generated archive and of all referenced archives. You also need the root reference that was generated together with the archive. If you have stored the encrypted root reference in archive.root, as recommended above, your command line might look like this:
 
     gpg -d <archive.root | bk mount archive /mnt/backup
 
-Any number of archives may be specified instead of "archive". Usually you will need the archive that was generated together with the root reference specified and all other archives that were used (for deduplication) when creating that arcive.
+Any number of archives may be specified instead of "archive". You will need the archive that was generated together with the root reference and all other archives that were used (for deduplication) when creating that archive.
 
 Filters
 -------
