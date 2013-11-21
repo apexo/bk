@@ -138,7 +138,7 @@ int mtime_index_init(mtime_index_t *mi, const char *salt, size_t salt_len) {
 }
 
 /*
- * caller must assure that  capacity ("limit") is large enough for (or probably equal to) src1->num_entries + src2->num-entries
+ * caller must assure that dst->capacity ("limit") is large enough for (or probably equal to) src1->num_entries + src2->num-entries
  */
 static void _mtime_index_range_merge(mtime_index_range_t *dst, mtime_index_range_t *src1, mtime_index_range_t *src2) {
 	const size_t n1 = src1->num_entries, n2 = src2->num_entries;
