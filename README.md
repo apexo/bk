@@ -1,18 +1,25 @@
 bk: yet another backup tool
 ===========================
 
-Deduplication, compression, encryption.
+What is it?
+-----------
+
+An archiving utility with deduplication, compression, encryption, and random access (via FUSE mount).
+
+What is it not?
+---------------
+
+A full-featured backup solution.
 
 Some terminology
 ----------------
 
-A bk backup ("archive") consists of up to four elements:
+A bk archive consists of up to four artifacts:
 
 - an index file (.idx); this is required for deduplication (which is also used for differential backup) and for data recovery, this file does not contain sensitive information
 - a data file (.data); required for recovery, this file is encrypted
 - the root reference; required for recovery, this is usually very small and should be kept safe (i.e.: encrypted) since it contains the decryption key to all data
 - optionally, an .midx file; this is only required for fast, mtime-based deduplication, it contains potentially sensitive information; should never leave the host on which the backup was created; the midx is disabled by default if you want it and understand the security implications use --create-midx
-
 
 Create standalone archive
 -------------------------
