@@ -352,7 +352,6 @@ terrific:
 		pwd = NULL;
 	}
 
-	d.ino = htobe64(index_alloc_ino(dws->index));
 	d.mode = htobe32(buf.st_mode);
 	d.uid = htobe32(buf.st_uid);
 	d.gid = htobe32(buf.st_gid);

@@ -35,7 +35,6 @@ int index_init(index_t *index, int readonly, const char *salt, size_t salt_len) 
 		return 0;
 	}
 
-	index->next_ino = 2; // in FUSE, 0 is invalid and 1 is reserved for the root
 	if (_index_workidx_grow(index, 1)) {
 		index_free(index);
 		return -1;
@@ -605,8 +604,4 @@ int index_lookup(index_t *index, block_key_t key, file_offset_t *file_offset, bl
 	*block_size = be32toh(page->block_size[pageidx]);
 	*compressed_block_size = be32toh(page->compressed_block_size[pageidx]);
 	return 0;
-}
-
-uint64_t index_alloc_ino(index_t *index) {
-	return index->next_ino++;
 }

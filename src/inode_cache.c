@@ -46,6 +46,8 @@ int inode_cache_init(inode_cache_t *cache, mempool_t *mempool, const char *ref, 
 		goto err;
 	}
 
+	cache->next_ino = 2;
+
 	cache->size[0] = INODE_ENTRIES_MIN;
 	cache->size[1] = INODE_ENTRIES_MIN;
 
@@ -83,10 +85,9 @@ inode_t* inode_cache_lookup(inode_cache_t *cache, uint64_t ino) {
 	return cache->table[table_idx][ino];
 }
 
-const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const char *ref, int ref_len) {
+inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry_t *dentry, const char *ref, int ref_len, uint64_t *ino) {
 	inode_t *inode = NULL;
 	size_t table_idx = 0;
-	uint64_t ino = be64toh(dentry->ino);
 
 #ifdef MULTITHREADED
 	if (pthread_mutex_lock(&cache->mutex)) {
@@ -94,6 +95,8 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 		return NULL;
 	}
 #endif
+
+	uint64_t idx = *ino = cache->next_ino++;
 
 	while (1) {
 		assert(table_idx < INODE_TABLES);
@@ -111,14 +114,14 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 			}
 			cache->size[table_idx] = n;
 		}
-		if (ino < cache->size[table_idx]) {
+		if (idx < cache->size[table_idx]) {
 			break;
 		}
-		ino -= cache->size[table_idx++];
+		idx -= cache->size[table_idx++];
 	}
 
-	if (cache->table[table_idx][ino]) {
-		inode = cache->table[table_idx][ino];
+	if (cache->table[table_idx][idx]) {
+		inode = cache->table[table_idx][idx];
 		goto out;
 	}
 
@@ -139,7 +142,7 @@ const inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const 
 	inode->uid = be32toh(dentry->uid); // TODO: translate (with username) to local uid
 	inode->gid = be32toh(dentry->gid); // TODO: translate (with groupname) to local gid
 
-	cache->table[table_idx][ino] = inode;
+	cache->table[table_idx][idx] = inode;
 
 out:
 #ifdef MULTITHREADED

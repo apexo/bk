@@ -47,7 +47,7 @@ static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info 
 	fuse_reply_attr(req, &stbuf, 86400.0);
 }
 
-static int _populate_dir_index(fuse_global_state_t *fuse_global_state, fuse_thread_state_t *fuse_thread_state, fuse_ino_t parent, inode_t *parent_inode) {
+static int _populate_dir_index_locked(fuse_global_state_t *fuse_global_state, fuse_thread_state_t *fuse_thread_state, fuse_ino_t parent, inode_t *parent_inode) {
 	block_t *block = block_cache_get(
 		&fuse_thread_state->block_thread_state,
 		fuse_global_state->block_cache, 
@@ -64,6 +64,7 @@ static int _populate_dir_index(fuse_global_state_t *fuse_global_state, fuse_thre
 	size_t ref_len, dnamelen;
 	const char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
+	inode_t *last_sibling = NULL;
 
 	ssize_t n;
 	while ((n = dir_entry_read(&fuse_thread_state->block_thread_state, &fuse_thread_state->dir_thread_state, block, fuse_global_state->index, &dentry,
@@ -71,13 +72,30 @@ static int _populate_dir_index(fuse_global_state_t *fuse_global_state, fuse_thre
 		&dname, &dnamelen,
 		&username, &groupname)) > 0) {
 
-		const inode_t *inode = inode_cache_add(fuse_global_state->inode_cache, parent, dentry, ref, ref_len);
+		uint64_t ino;
+
+		inode_t *inode = inode_cache_add(fuse_global_state->inode_cache, parent, dentry, ref, ref_len, &ino);
 		if (!inode) {
 			fprintf(stderr, "inode_cache_add failed\n");
 			goto out;
 		}
 
-		if (dir_index_add(fuse_global_state->dir_index, (const char*)dname, dnamelen, be64toh(dentry->ino))) {
+		char *name = mempool_alloc(fuse_global_state->inode_cache->mempool, dnamelen + 1);
+		if (!name) {
+			fprintf(stderr, "mempool_alloc failed\n");
+			goto out;
+		}
+		memcpy(name, dname, dnamelen);
+		inode->name = name;
+
+		if (last_sibling) {
+			last_sibling->next_sibling_ino = ino;
+		} else {
+			parent_inode->first_child_ino = ino;
+		}
+		last_sibling = inode;
+
+		if (dir_index_add(fuse_global_state->dir_index, (const char*)dname, dnamelen, ino)) {
 			fprintf(stderr, "dir_index_add failed\n");
 			goto out;
 		}
@@ -100,6 +118,31 @@ out:
 	return rc;
 }
 
+static int _populate_dir_index(fuse_global_state_t *fuse_global_state, fuse_thread_state_t *fuse_thread_state, fuse_ino_t parent, inode_t *parent_inode) {
+	if (!parent_inode->dir_index) {
+		#ifdef MULTITHREADED
+		if (pthread_mutex_lock(&fuse_global_state->dir_index_mutex)) {
+			perror("pthread_mutex_lock failed");
+			return -1;
+		}
+		if (!parent_inode->dir_index) {
+		#endif
+			if (_populate_dir_index_locked(fuse_global_state, fuse_thread_state, parent, parent_inode)) {
+				fprintf(stderr, "_populate_dir_index_locked failed\n");
+				return -1;
+			}
+		#ifdef MULTITHREADED
+		}
+		if (pthread_mutex_unlock(&fuse_global_state->dir_index_mutex)) {
+			perror("(in bk_ll_lookup) pthread_mutex_unlock failed");
+			return -1;
+		}
+		#endif
+	}
+
+	return 0;
+
+}
 
 static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
@@ -112,28 +155,10 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 		return;
 	}
 
-	if (!parent_inode->dir_index) {
-		#ifdef MULTITHREADED
-		if (pthread_mutex_lock(&fuse_global_state->dir_index_mutex)) {
-			perror("(in bk_ll_lookup) pthread_mutex_lock failed");
-			fuse_reply_err(req, EIO);
-			return;
-		}
-		if (!parent_inode->dir_index) {
-		#endif
-			if (_populate_dir_index(fuse_global_state, fuse_thread_state, parent, parent_inode)) {
-				fprintf(stderr, "(in bk_ll_lookup) _populate_dir_index failed\n");
-				fuse_reply_err(req, EIO);
-				return;
-			}
-		#ifdef MULTITHREADED
-		}
-		if (pthread_mutex_unlock(&fuse_global_state->dir_index_mutex)) {
-			perror("(in bk_ll_lookup) pthread_mutex_unlock failed");
-			fuse_reply_err(req, EIO);
-			return;
-		}
-		#endif
+	if (_populate_dir_index(fuse_global_state, fuse_thread_state, parent, parent_inode)) {
+		fprintf(stderr, "(in bk_ll_lookup) _populate_dir_index failed\n");
+		fuse_reply_err(req, EIO);
+		return;
 	}
 
 	const uint64_t ino = dir_index_range_lookup(parent_inode->dir_index, &fuse_thread_state->d, name, strlen(name));
@@ -160,6 +185,13 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 	memset(e, 0, sizeof(struct fuse_entry_param));
 }
 
+/*
+ * off mapping:
+ * 0: start, "."
+ * 1: ".."
+ * 2: end of directory
+ * 2 + x: = more entries, x = ino of next child (since ino > 0, this is always > 2)
+ */
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
 	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
@@ -172,8 +204,14 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		return;
 	}
 
+	if (off == 2) {
+		// end of directory
+		fuse_reply_buf(req, reply, 0);
+		return;
+	}
+
 	size_t idx = 0;
-	const inode_t *self;
+	inode_t *self;
 
 	if (off < 2) {
 		self = inode_cache_lookup(fuse_global_state->inode_cache, ino);
@@ -190,11 +228,10 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		struct stat stbuf;
 		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, self);
 		stbuf.st_ino = ino;
-		size_t n = fuse_add_direntry(req, reply + idx, size - idx, ".", &stbuf, off+1);
+		size_t n = fuse_add_direntry(req, reply + idx, size - idx, ".", &stbuf, ++off);
 		if (n > size - idx) {
 			goto full;
 		}
-		off++;
 		idx += n;
 	}
 
@@ -208,78 +245,47 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 		struct stat stbuf;
 		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, parent);
 		stbuf.st_ino = self->parent_ino;
-		size_t n = fuse_add_direntry(req, reply + idx, size - idx, "..", &stbuf, off+1);
+		size_t n = fuse_add_direntry(req, reply + idx, size - idx, "..", &stbuf, ++off);
 		if (n > size - idx) {
 			goto full;
 		}
-		off++;
 		idx += n;
 	}
 
 	assert(off >= 2);
 
-	block_t *block = block_cache_get(
-		&fuse_thread_state->block_thread_state,
-		fuse_global_state->block_cache,
-		fuse_global_state->inode_cache,
-		fuse_global_state->index,
-		ino, off-2);
+	uint64_t child_ino = off - 2;
 
-	if (!block) {
-		fprintf(stderr, "(in bk_ll_readdir) block_cache_get failed\n");
-		fuse_reply_err(req, EIO);
-		return;
+	if (!child_ino) {
+		if (_populate_dir_index(fuse_global_state, fuse_thread_state, ino, self)) {
+			fprintf(stderr, "(in bk_ll_readdir) _populate_dir_index failed\n");
+			fuse_reply_err(req, EIO);
+			return;
+		}
+
+		child_ino = self->first_child_ino;
 	}
 
-	size_t ref_len, dnamelen;
-	const char *ref, *dname, *username, *groupname;
-	const dentry_t *dentry;
-
-	ssize_t n;
-
-	while ((n = dir_entry_read(&fuse_thread_state->block_thread_state, &fuse_thread_state->dir_thread_state, block, fuse_global_state->index, &dentry,
-		&ref, &ref_len,
-		&dname, &dnamelen,
-		&username, &groupname)) > 0) {
-
-		const inode_t *inode = inode_cache_add(fuse_global_state->inode_cache, ino, dentry, ref, ref_len);
-		if (!inode) {
-			fprintf(stderr, "(in bk_ll_readdir) inode_cache_add failed\n");
+	while (child_ino) {
+		const inode_t *child = inode_cache_lookup(fuse_global_state->inode_cache, child_ino);
+		if (!child) {
+			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", child_ino);
 			fuse_reply_err(req, EIO);
-			block_cache_put(fuse_global_state->block_cache, block, 0, 0);
 			return;
 		}
 
 		struct stat stbuf;
-		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, inode);
-		stbuf.st_ino = be64toh(dentry->ino);
+		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, child);
+		stbuf.st_ino = child_ino;
 
-		((char*)dname)[dnamelen] = 0;
-		size_t m = fuse_add_direntry(req, reply + idx, size - idx, (const char*)dname, &stbuf, off + n);
-
-		if (m > size - idx) {
-			if (block->idx[0] >= n) {
-				// easy: "unread" dentry and put block back in cache
-				block->idx[0] -= n;
-				block_cache_put(fuse_global_state->block_cache, block, ino, off - 2);
-			} else {
-				// otherwise: dentry was probably split on block boundary, the block state is probably useless now
-				block_cache_put(fuse_global_state->block_cache, block, 0, 0);
-			}
+		size_t n = fuse_add_direntry(req, reply + idx, size - idx, child->name, &stbuf, 2 + child->next_sibling_ino);
+		if (n > size - idx) {
 			goto full;
 		}
-		idx += m;
-		off += n;
+		idx += n;
+		child_ino = child->next_sibling_ino;
 	}
 
-	if (n < 0) {
-		fprintf(stderr, "(in bk_ll_readdir) dir_entry_read failed\n");
-		fuse_reply_err(req, EIO);
-		block_cache_put(fuse_global_state->block_cache, block, 0, 0);
-		return;
-	}
-
-	block_cache_put(fuse_global_state->block_cache, block, ino, off - 2);
 	fuse_reply_buf(req, reply, idx);
 	return;
 

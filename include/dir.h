@@ -15,7 +15,7 @@
 #define DENTRY_MAX_SIZE (sizeof(dentry_t) + MAX_REF_SIZE + PATH_MAX + USERNAMELEN_MAX + GROUPNAMELEN_MAX)
 
 typedef struct dentry {
-	uint64_t ino;     /* inode number (synthetic) */
+	uint64_t ino_unused;     /* inode number (synthetic) */
 	uint64_t rdev;    /* device ID (if special file) */
 	uint64_t size;    /* total size, in bytes */
 	uint64_t blocks;  /* number of 512B blocks allocated */

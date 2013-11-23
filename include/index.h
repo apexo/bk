@@ -83,7 +83,6 @@ typedef struct index {
 
 	SHA256_CTX encryption_key_context;
 	SHA256_CTX storage_key_context;
-	uint64_t next_ino;
 
 	index_header_t header;
 
@@ -99,6 +98,5 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd);
 int index_add_block(index_t *index, block_key_t block_key, file_offset_t file_offset, block_size_t block_size, block_size_t compressed_block_size);
 int index_write(index_t *index, int fd);
 int index_lookup(index_t *index, block_key_t key, file_offset_t *file_offset, block_size_t *block_size, block_size_t *compressed_block_size, ondiskidx_t **ondiskidx);
-uint64_t index_alloc_ino(index_t *index);
 
 #endif
