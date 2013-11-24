@@ -36,6 +36,7 @@ int block_ref_length(const char *ref);
 int block_setup(block_t *block, const char *ref, size_t ref_len);
 ssize_t block_read(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char *dst, size_t size);
 int block_skip(block_thread_state_t *block_thread_state, block_t *block, index_t *index, off_t ofs);
+int block_stats(block_thread_state_t *block_thread_state, block_t *block, index_t *index, ondiskidx_t *rootidx, uint64_t *allocated_bytes);
 
 int blksize_check(size_t blksize);
 int block_ref_check(const char *ref, size_t ref_len);

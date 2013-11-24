@@ -134,7 +134,6 @@ inode_t* inode_cache_add(inode_cache_t *cache, uint64_t parent_ino, const dentry
 	inode->parent_ino = parent_ino;
 	inode->rdev = be64toh(dentry->rdev);
 	inode->size = be64toh(dentry->size);
-	inode->blocks = be64toh(dentry->blocks);
 	inode->atime = be64toh(dentry->atime);
 	inode->mtime = be64toh(dentry->mtime);
 	inode->ctime = be64toh(dentry->ctime);

@@ -357,7 +357,6 @@ terrific:
 	d.gid = htobe32(buf.st_gid);
 	d.rdev = htobe64(buf.st_rdev);
 	d.size = htobe64(block_next->raw_bytes);
-	d.blocks = htobe64((block_next->allocated_bytes + 511) / 512);
 	d.atime = args->dont_save_atime ? htobe64(buf.st_ctime) : htobe64(buf.st_atime);
 	d.mtime = htobe64(buf.st_mtime);
 	d.ctime = htobe64(buf.st_ctime);

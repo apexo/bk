@@ -226,6 +226,7 @@ int do_help_mount(int argc, char *argv[]) {
 	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -R,--root-ref           The root reference. May also be entered on stdin.\n");
+	fprintf(stdout, "   --stats                 Calculate number of blocks used.\n");
 	return 1;
 }
 
@@ -451,7 +452,7 @@ out:
 }
 
 int do_mount(int argc, char *argv[], int idx) {
-	int rc = 1, f_mempool = 0, f_mempool_temp = 0, f_inode_cache = 0, f_index = 0;
+	int rc = 1, f_mempool = 0, f_mempool_temp = 0, f_inode_cache = 0, f_index = 0, stats = 0;
 	char **fuse_argv = NULL;
 	char *fuse_args = NULL;
 
@@ -465,6 +466,7 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	static struct option long_options[] = {
 		{"root-ref", required_argument, 0, 0 },
+		{"stats",    no_argument,       0, 0 },
 		{0,          0,                 0, 0 }
 	};
 
@@ -500,6 +502,10 @@ int do_mount(int argc, char *argv[], int idx) {
 			// hide ref (from publicly viewable /proc/$$/cmdline)
 			memset(optarg, 'X', strlen(optarg));
 			continue;
+		}
+
+		if (!c && option_index == 1) {
+			stats = 1;
 		}
 
 		if (c == 1) {
@@ -590,7 +596,7 @@ int do_mount(int argc, char *argv[], int idx) {
 	mempool_free(&mempool_temp);
 	f_mempool_temp = 0;
 
-	rc = fuse_main(&index, &inode_cache, ondiskidx, fuse_argc, fuse_argv);
+	rc = fuse_main(&index, &inode_cache, ondiskidx, stats, fuse_argc, fuse_argv);
 
 out:
 	if (f_inode_cache) { inode_cache_free(&inode_cache); }

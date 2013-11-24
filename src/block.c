@@ -193,7 +193,7 @@ static const char *_block_compress(const char *src, size_t n, char *dst, block_s
 	}
 }
 
-static int _block_crypt(const char *src, size_t n, char *dst, block_key_t encryption_key, int enc) {
+static int _block_crypt(const char *src, size_t n, char *dst, const block_key_t encryption_key, int enc) {
 	const EVP_CIPHER *cipher = EVP_aes_256_ctr();
 	if (!cipher) {
 		fprintf(stderr, "EVP_aes_256_ctr failed\n");
@@ -438,7 +438,7 @@ int block_setup(block_t *block, const char *ref, size_t ref_len) {
 	return 0;
 }
 
-static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char *dst, size_t size, block_key_t encryption_key) {
+static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *block, index_t *index, char *dst, size_t size, const block_key_t encryption_key) {
 	block_key_t storage_key;
 	int data_fd;
 	file_offset_t file_offset;
@@ -721,4 +721,66 @@ ssize_t block_read(block_thread_state_t *block_thread_state, block_t *block, ind
 	memcpy(dst, block->data[0], n);
 	block->idx[0] = n;
 	return n;
+}
+
+int block_stats(block_thread_state_t *block_thread_state, block_t *block, index_t *index, ondiskidx_t *rootidx, uint64_t *allocated_bytes) {
+	*allocated_bytes = 0;
+	int indir = 1;
+	block_key_t storage_key;
+	ondiskidx_t *ondiskidx;
+	file_offset_t file_offset;
+	block_size_t block_size, compressed_block_size;
+
+	while (1) {
+		while (indir <= block->indirection && block->idx[indir] == block->len[indir]) {
+			indir++;
+		}
+		if (indir > block->indirection) {
+			return 0;
+		}
+
+		while (1) {
+			assert(block->idx[indir] + BLOCK_KEY_SIZE <= block->len[indir]);
+
+			const char *encryption_key = block->data[indir] + block->idx[indir];
+			_block_hash2(index, encryption_key, storage_key);
+
+			if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
+				fprintf(stderr, "index_lookup failed: indir=%d, idx=%zd, len=%zd\n", indir, block->idx[indir], block->len[indir]);
+				return -1;
+			}
+
+			block->idx[indir] += BLOCK_KEY_SIZE;
+
+			if (ondiskidx == rootidx) {
+				*allocated_bytes += compressed_block_size;
+			} else if (indir > 1) {
+				/*
+				 * it is impossible for this reference to
+				 * (indirectly) point at a reference in the
+				 * root index, thus we can skip it
+				 */
+				if (block->idx[indir] >= block->len[indir]) {
+					break;
+				}
+				continue;
+			}
+
+			if (indir > 1) {
+				// TODO: not terribly efficient, _block_fetch repeats the index_lookup
+				ssize_t n = _block_fetch(block_thread_state, block, index, block->data[indir - 1], block->blksize, encryption_key);
+				if (n < 0) {
+					fprintf(stderr, "_block_fetch failed\n");
+					return -1;
+				}
+				block->len[indir - 1] = n;
+				block->idx[indir - 1] = 0;
+				indir--;
+			} else {
+				if (block->idx[indir] >= block->len[indir]) {
+					break;
+				}
+			}
+		}
+	}
 }

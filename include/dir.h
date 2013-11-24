@@ -18,7 +18,7 @@ typedef struct dentry {
 	uint64_t ino_unused;     /* inode number (synthetic) */
 	uint64_t rdev;    /* device ID (if special file) */
 	uint64_t size;    /* total size, in bytes */
-	uint64_t blocks;  /* number of 512B blocks allocated */
+	uint64_t blocks_unused;  /* number of 512B blocks allocated */
 	uint64_t atime;   /* time of last access */
 	uint64_t mtime;   /* time of last modification */
 	uint64_t ctime;   /* time of last status change */

@@ -55,6 +55,7 @@ typedef struct fuse_global_state {
 	mempool_t *mempool;
 
 	long page_size;
+	int stats;
 
 	#ifdef MULTITHREADED
 	pthread_key_t state_key;

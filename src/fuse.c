@@ -83,6 +83,26 @@ static int _populate_dir_index_locked(fuse_global_state_t *fuse_global_state, fu
 			goto out;
 		}
 
+		if (fuse_global_state->stats) {
+			uint64_t allocated_bytes = 0;
+			block_t *block2 = block_cache_get(
+				&fuse_thread_state->block_thread_state,
+				fuse_global_state->block_cache,
+				fuse_global_state->inode_cache,
+				fuse_global_state->index,
+				ino, 0);
+			if (!block2) {
+				fprintf(stderr, "block_cache_get failed\n");
+				goto out;
+			}
+			if (block_stats(&fuse_thread_state->block_thread_state, block2, fuse_global_state->index, fuse_global_state->ondiskidx, &allocated_bytes)) {
+				fprintf(stderr, "block_stats failed\n");
+			} else {
+				inode->blocks = (allocated_bytes + 511) / 512;
+			}
+			block_cache_put(fuse_global_state->block_cache, block2, 0, 0);
+		}
+
 		char *name = mempool_alloc(fuse_global_state->inode_cache->mempool, dnamelen + 1);
 		if (!name) {
 			fprintf(stderr, "mempool_alloc failed\n");
@@ -431,7 +451,7 @@ static struct fuse_lowlevel_ops bk_ll_oper = {
 	.statfs = bk_ll_statfs,
 };
 
-int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx, int argc, char *argv[]) {
+int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx, int stats, int argc, char *argv[]) {
 	fuse_global_state_t fuse_global_state;
 	memset(&fuse_global_state, 0, sizeof(fuse_global_state_t));
 
@@ -439,6 +459,7 @@ int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx
 	fuse_global_state.ondiskidx = ondiskidx;
 	fuse_global_state.mempool = inode_cache->mempool;
 	fuse_global_state.inode_cache = inode_cache;
+	fuse_global_state.stats = stats;
 
 	if (fuse_global_state_setup(&fuse_global_state)) {
 		fprintf(stderr, "fuse_thread_state_setup failed\n");
