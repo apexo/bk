@@ -195,8 +195,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
  * off mapping:
  * 0: start, "."
  * 1: ".."
- * 2: end of directory
- * 2 + x: = more entries, x = ino of next child (since ino > 0, this is always > 2)
+ * 2 + x: = more entries, x = ino of next child
  */
 static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
@@ -207,12 +206,6 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	if (!reply) {
 		fprintf(stderr, "(in bk_ll_readdir) fuse_thread_state_get_reply_buffer failed\n");
 		fuse_reply_err(req, EIO);
-		return;
-	}
-
-	if (off == 2) {
-		// end of directory
-		fuse_reply_buf(req, reply, 0);
 		return;
 	}
 
