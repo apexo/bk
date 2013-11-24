@@ -24,6 +24,8 @@ typedef struct dir_index_range {
 	size_t num_entries;
 	block_key_t *key;
 	uint64_t *ino;
+
+	uint64_t first_ino;
 } dir_index_range_t;
 
 #define DIR_RANGES 64

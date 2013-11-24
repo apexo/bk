@@ -15,8 +15,6 @@
 
 typedef struct inode  {
 	uint64_t parent_ino;
-	uint64_t first_child_ino;
-	uint64_t next_sibling_ino;
 	char* name;
 
 	dir_index_range_t *

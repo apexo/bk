@@ -64,7 +64,10 @@ static int _populate_dir_index_locked(fuse_global_state_t *fuse_global_state, fu
 	size_t ref_len, dnamelen;
 	const char *ref, *dname, *username, *groupname;
 	const dentry_t *dentry;
-	inode_t *last_sibling = NULL;
+	uint64_t first_ino = 0;
+#ifndef NDEBUG
+	uint64_t last_ino = -1;
+#endif
 
 	ssize_t n;
 	while ((n = dir_entry_read(&fuse_thread_state->block_thread_state, &fuse_thread_state->dir_thread_state, block, fuse_global_state->index, &dentry,
@@ -88,12 +91,12 @@ static int _populate_dir_index_locked(fuse_global_state_t *fuse_global_state, fu
 		memcpy(name, dname, dnamelen);
 		inode->name = name;
 
-		if (last_sibling) {
-			last_sibling->next_sibling_ino = ino;
-		} else {
-			parent_inode->first_child_ino = ino;
+		if (!first_ino) {
+			first_ino = ino;
 		}
-		last_sibling = inode;
+#ifndef NDEBUG
+		last_ino = ino;
+#endif
 
 		if (dir_index_add(fuse_global_state->dir_index, (const char*)dname, dnamelen, ino)) {
 			fprintf(stderr, "dir_index_add failed\n");
@@ -111,6 +114,9 @@ static int _populate_dir_index_locked(fuse_global_state_t *fuse_global_state, fu
 		fprintf(stderr, "dir_index_merge failed\n");
 		goto out;
 	}
+
+	assert(last_ino - first_ino + 1 == parent_inode->dir_index->num_entries);
+	parent_inode->dir_index->first_ino = first_ino;
 
 	rc = 0;
 out:
@@ -211,17 +217,11 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 	}
 
 	size_t idx = 0;
-	inode_t *self;
-
-	if (off < 2) {
-		self = inode_cache_lookup(fuse_global_state->inode_cache, ino);
-		if (!self) {
-			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", ino);
-			fuse_reply_err(req, EIO);
-			return;
-		}
-	} else {
-		self = NULL;
+	inode_t *self = inode_cache_lookup(fuse_global_state->inode_cache, ino);
+	if (!self) {
+		fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", ino);
+		fuse_reply_err(req, EIO);
+		return;
 	}
 
 	if (off == 0) {
@@ -256,17 +256,19 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 	uint64_t child_ino = off - 2;
 
-	if (!child_ino) {
-		if (_populate_dir_index(fuse_global_state, fuse_thread_state, ino, self)) {
-			fprintf(stderr, "(in bk_ll_readdir) _populate_dir_index failed\n");
-			fuse_reply_err(req, EIO);
-			return;
-		}
-
-		child_ino = self->first_child_ino;
+	if (_populate_dir_index(fuse_global_state, fuse_thread_state, ino, self)) {
+		fprintf(stderr, "(in bk_ll_readdir) _populate_dir_index failed\n");
+		fuse_reply_err(req, EIO);
+		return;
 	}
 
-	while (child_ino) {
+	if (!child_ino) {
+		child_ino = self->dir_index->first_ino;
+	}
+
+	uint64_t eof = self->dir_index->first_ino + self->dir_index->num_entries;
+
+	while (child_ino < eof) {
 		const inode_t *child = inode_cache_lookup(fuse_global_state->inode_cache, child_ino);
 		if (!child) {
 			fprintf(stderr, "(in bk_ll_readdir) inode_cache_lookup (%zd) failed\n", child_ino);
@@ -276,14 +278,13 @@ static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
 		struct stat stbuf;
 		stat_from_inode(fuse_global_state->ondiskidx, &stbuf, child);
-		stbuf.st_ino = child_ino;
+		stbuf.st_ino = child_ino++;
 
-		size_t n = fuse_add_direntry(req, reply + idx, size - idx, child->name, &stbuf, 2 + child->next_sibling_ino);
+		size_t n = fuse_add_direntry(req, reply + idx, size - idx, child->name, &stbuf, 2 + child_ino);
 		if (n > size - idx) {
 			goto full;
 		}
 		idx += n;
-		child_ino = child->next_sibling_ino;
 	}
 
 	fuse_reply_buf(req, reply, idx);
