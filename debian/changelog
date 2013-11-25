@@ -1,3 +1,11 @@
+bk (0.2) unstable; urgency=low
+
+  * minor updates to dentry format; should reduce size of differential updates;
+    v0.1 will not be able to read archives created with v0.2
+
+ -- Christian Schubert <mail@apexo.de>  Wed, 25 Nov 2013 15:30:00 +0100
+
+
 bk (0.1) unstable; urgency=low
 
   * initial release
