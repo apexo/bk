@@ -155,7 +155,7 @@ static ssize_t _read_salt(int path, char *salt, size_t max_len) {
 		return max_len;
 	}
 
-	size_t n = read_upto(fd, salt, max_len);
+	ssize_t n = read_upto(fd, salt, max_len);
 	if (n < 0) {
 		fprintf(stderr, "read_upto failed\n");
 	}

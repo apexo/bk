@@ -155,7 +155,8 @@ static int read_root_ref_from_tty(int fd, char* temp, char *ref) {
 static int read_root_ref_from_pipe(int fd, char* temp, char *ref) {
 	memset(temp, 0, MAX_HEXREF_SIZE);
 
-	size_t len = 0, n;
+	size_t len = 0;
+	ssize_t n;
 	char chr;
 	while ((n = read(fd, &chr, 1)) == 1) {
 		if (chr == '\n') {
