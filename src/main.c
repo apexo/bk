@@ -644,18 +644,18 @@ int do_info(int argc, char *argv[], int idx) {
 			hex_format(hash, ondiskidx->header->referenced_indices[i], BLOCK_KEY_SIZE);
 			fprintf(stdout, "\treferences index: %s\n", hash);
 		}
-		fprintf(stdout, "\ttotal: %'zd bytes in %'zd blocks\n",
+		fprintf(stdout, "\ttotal: %zd bytes in %zd blocks\n",
 			be64toh(ondiskidx->header->total_bytes),
 			be64toh(ondiskidx->header->total_blocks));
-		fprintf(stdout, "\tafter deduplication: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		fprintf(stdout, "\tafter deduplication: %zd bytes in %zd blocks; compressed: %zd bytes\n",
 			be64toh(ondiskidx->header->dedup_bytes),
 			be64toh(ondiskidx->header->dedup_blocks),
 			be64toh(ondiskidx->header->dedup_compressed_bytes));
-		fprintf(stdout, "\twritten: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		fprintf(stdout, "\twritten: %zd bytes in %zd blocks; compressed: %zd bytes\n",
 			be64toh(ondiskidx->header->internal_bytes),
 			be64toh(ondiskidx->header->internal_blocks),
 			be64toh(ondiskidx->header->internal_compressed_bytes));
-		fprintf(stdout, "\texternal references: %'zd bytes in %'zd blocks; compressed: %'zd bytes\n",
+		fprintf(stdout, "\texternal references: %zd bytes in %zd blocks; compressed: %zd bytes\n",
 			be64toh(ondiskidx->header->dedup_bytes) - be64toh(ondiskidx->header->internal_bytes),
 			be64toh(ondiskidx->header->dedup_blocks) - be64toh(ondiskidx->header->internal_blocks),
 			be64toh(ondiskidx->header->dedup_compressed_bytes) - be64toh(ondiskidx->header->internal_compressed_bytes
