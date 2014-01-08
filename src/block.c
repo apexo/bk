@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 
 #include "block.h"
+#include "mixed_limits.h"
 
 void block_free(block_t *block);
 
@@ -50,13 +51,12 @@ static int _safe_add(ssize_t *accum, ssize_t *limit, ssize_t value) {
  * we don't need 5 full indirection blocks for 4 MiByte blksize
  */
 static void _set_limits(block_t *block) {
-	const off_t filesize_limit = 9223372036854775807L; // 2**63-1, we should be compiling with FILE_OFFSET_BITS=64 for fuse, anyway, so this should make sense
 	const size_t blksize = block->blksize;
 	const off_t inline_blocks = INLINE_THRESHOLD / BLOCK_KEY_SIZE;
 	const off_t block_ref_limit = blksize / BLOCK_KEY_SIZE;
-	off_t blocks = (filesize_limit / blksize) + 1;
+	off_t blocks = (OFFSET_MAX / blksize) + 1;
 
-	block->limit[0] = filesize_limit > blksize ? blksize : filesize_limit;
+	block->limit[0] = (uoff_t)OFFSET_MAX > blksize ? blksize : OFFSET_MAX;
 	for (size_t i = 1; i <= MAX_INDIRECTION; i++) {
 		if (i == MAX_INDIRECTION && blocks > inline_blocks) {
 			// we cannot store the maximal file size with the given block size
@@ -180,7 +180,7 @@ static void _block_hash2(index_t *index, const block_key_t encryption_key, block
 }
 
 // only store compressed data if compressible by at least 5%
-#define IS_COMPRESSIBLE(size, compressed) ((compressed) && ((compressed) < (size)) && ((size) - (compressed) > (size) / 20))
+#define IS_COMPRESSIBLE(size, compressed) ((compressed > 0) && (((unsigned int)compressed) < (size)) && ((size) - (unsigned int)(compressed) > (size) / 20))
 
 static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size, int lz4hc) {
 	int compressed = lz4hc ? LZ4_compressHC(src, dst, n) : LZ4_compress(src, dst, n);
@@ -390,7 +390,7 @@ int block_flush(block_thread_state_t *block_thread_state, block_t *block, index_
 	return n;
 }
 
-int block_ref_length(const char *ref) {
+size_t block_ref_length(const char *ref) {
 	return ((const unsigned char*)ref)[0] + 2;
 }
 
@@ -527,7 +527,7 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 			return -1;
 		}
 
-		if (n != block_size) {
+		if ((unsigned int)n != block_size) {
 			fprintf(stderr, "unexpected LZ4_decompress_safe result\n");
 			return -1;
 		}
@@ -639,7 +639,7 @@ static ssize_t _block_skip(block_thread_state_t *block_thread_state, block_t *bl
 		return -1;
 	}
 
-	if (ofs >= bytes) {
+	if (ofs >= (size_t)bytes) {
 		block->idx[indir] = block->len[indir];
 		return bytes;
 	} else {
@@ -717,7 +717,7 @@ ssize_t block_read(block_thread_state_t *block_thread_state, block_t *block, ind
 	}
 
 	block->len[0] = n;
-	n = n < size ? n : size;
+	n = (size_t)n < size ? (size_t)n : size;
 	memcpy(dst, block->data[0], n);
 	block->idx[0] = n;
 	return n;
@@ -725,7 +725,7 @@ ssize_t block_read(block_thread_state_t *block_thread_state, block_t *block, ind
 
 int block_stats(block_thread_state_t *block_thread_state, block_t *block, index_t *index, ondiskidx_t *rootidx, uint64_t *allocated_bytes) {
 	*allocated_bytes = 0;
-	int indir = 1;
+	size_t indir = 1;
 	block_key_t storage_key;
 	ondiskidx_t *ondiskidx;
 	file_offset_t file_offset;
@@ -746,7 +746,7 @@ int block_stats(block_thread_state_t *block_thread_state, block_t *block, index_
 			_block_hash2(index, encryption_key, storage_key);
 
 			if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
-				fprintf(stderr, "index_lookup failed: indir=%d, idx=%zd, len=%zd\n", indir, block->idx[indir], block->len[indir]);
+				fprintf(stderr, "index_lookup failed: indir=%zd, idx=%zd, len=%zd\n", indir, block->idx[indir], block->len[indir]);
 				return -1;
 			}
 

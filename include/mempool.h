@@ -15,7 +15,7 @@ typedef struct mempool {
 	size_t num_areas;
 	mempool_area_t *areas;
 	size_t align_mask;
-	long page_size;
+	size_t page_size;
 	int prot;
 	int flags;
 #ifdef MULTITHREADED

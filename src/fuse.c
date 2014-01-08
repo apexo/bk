@@ -413,7 +413,7 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 		return;
 	}
 
-	if (n >= size) {
+	if ((size_t)n >= size) {
 		fprintf(stderr, "(in bk_ll_readlink) link too long\n");
 		fuse_reply_err(req, ENAMETOOLONG);
 		return;

@@ -10,6 +10,7 @@
 #include <pwd.h>
 
 #include "util.h"
+#include "mixed_limits.h"
 
 extern char **environ;
 
@@ -29,7 +30,7 @@ static int _get_home() {
 	}
 
 	long initial_size = sysconf(_SC_GETPW_R_SIZE_MAX);
-	if (initial_size <= 0 || initial_size > SIZE_MAX) {
+	if (initial_size <= 0 || initial_size > LONG_SIZE_MAX) {
 		perror("sysconf failed");
 		return -1;
 	}

@@ -7,6 +7,7 @@
 #include <assert.h>
 
 #include "mempool.h"
+#include "mixed_limits.h"
 
 static int _mempool_grow(mempool_t *mp, size_t length) {
 	mempool_area_t *areas = realloc(mp->areas, (mp->num_areas + 1) * sizeof(mempool_area_t));
@@ -41,12 +42,16 @@ int mempool_init(mempool_t *mp, size_t align, int locked) {
 		mp->flags |= MAP_LOCKED;
 	}
 
-	mp->page_size = sysconf(_SC_PAGESIZE);
-	if (mp->page_size < 0) {
+	long page_size = sysconf(_SC_PAGESIZE);
+	if (page_size < 0) {
 		perror("error querying pagesize");
 		return -1;
 	}
-	assert(mp->page_size > 0);
+	if (page_size == 0 || page_size > LONG_SIZE_MAX) {
+		perror("illegal pagesize");
+		return -1;
+	}
+	mp->page_size = page_size;
 
 	if (align < 1 || align > mp->page_size || (align & (align - 1))) {
 		fprintf(stderr, "invalid alignment\n");

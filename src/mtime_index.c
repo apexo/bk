@@ -11,6 +11,7 @@
 
 #include "util.h"
 #include "mtime_index.h"
+#include "mixed_limits.h"
 
 static void _mtime_hash(mtime_index_t *mi, block_key_t key, const char *path, size_t path_len, uint64_t size, uint64_t mtime) {
 	SHA256_CTX ctx;
@@ -380,7 +381,7 @@ int mtime_index_ondisk_add(mtime_index_t *mi, int fd) {
 		return -1;
 	}
 
-	if (idx_size > SIZE_MAX) {
+	if (idx_size > OFFSET_SIZE_MAX) {
 		fprintf(stderr, "mtime index too large\n");
 		return -1;
 	}

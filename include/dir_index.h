@@ -38,7 +38,7 @@ typedef struct dir_index_range {
 typedef struct dir_index {
 	size_t limit[DIR_RANGES];
 	dir_index_range_t range[DIR_RANGES];
-	int num_ranges;
+	size_t num_ranges;
 	int fd_urandom;
 
 	// contains sensitive data, allocated from locked memory pool

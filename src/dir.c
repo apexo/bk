@@ -13,6 +13,7 @@
 #include <lz4.h>
 
 #include "dir.h"
+#include "mixed_limits.h"
 
 #define RECURSION_LIMIT 100
 
@@ -118,7 +119,7 @@ int _dir_write_dir(dir_write_state_t *dws, size_t depth, block_t *block, int fd)
 	ssize_t n = getdirentries(fd, temp, dws->blksize, &basep);
 	while (n > 0) {
 		struct dirent *dent = (struct dirent*)temp;
-		for (size_t pos = 0; pos < n; pos += dent->d_reclen, dent = (struct dirent*)(temp + pos)) {
+		for (size_t pos = 0; pos < (size_t)n; pos += dent->d_reclen, dent = (struct dirent*)(temp + pos)) {
 			if (_dir_entry_write(dws, depth, block, fd, dent->d_name)) {
 				fprintf(stderr, "_dir_entry_write failed\n");
 				return -1;
@@ -291,7 +292,7 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 			fprintf(stderr, "_dir_write_file failed: %s\n", name);
 			goto cleanup;
 		}
-		if (block_next->raw_bytes != buf.st_size) {
+		if (block_next->raw_bytes != (uoff_t)buf.st_size) {
 			fprintf(stderr, "file size changed: %zd -> %zd: %s\n", buf.st_size, block_next->raw_bytes, name);
 		}
 	} else if (S_ISDIR(buf.st_mode)) {
@@ -495,7 +496,7 @@ ssize_t dir_entry_read(
 		}
 		n += m;
 		assert(n <= req);
-	} while (n < req);
+	} while ((size_t)n < req);
 
 	size_t dnamelen = be16toh(dent->namelen);
 	size_t dref_len = block_ref_length(dref);
@@ -517,7 +518,7 @@ ssize_t dir_entry_read(
 		}
 		n += m;
 		assert(n <= req);
-	} while (n <  req);
+	} while ((size_t)n <  req);
 
 	*dentry = dent;
 	*ref = dref;

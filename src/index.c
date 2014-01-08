@@ -12,6 +12,7 @@
 #include "util.h"
 #include "block.h"
 #include "index.h"
+#include "mixed_limits.h"
 
 static int _index_workidx_grow(index_t *index, size_t limit);
 
@@ -116,7 +117,7 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 		return -1;
 	}
 
-	if (idx_size > SIZE_MAX) {
+	if (idx_size > OFFSET_SIZE_MAX) {
 		fprintf(stderr, "index too large\n");
 		return -1;
 	}

@@ -19,7 +19,7 @@ typedef struct args {
 	int verbose;
 	int list_only;
 	int xdev;
-	int dev;
+	dev_t dev;
 	int create_midx;
 	int dont_use_midx;
 	int dont_save_atime;

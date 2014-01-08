@@ -308,7 +308,7 @@ ssize_t read_exactly(int fd, char* data, size_t size) {
 	if (result < 0) {
 		fprintf(stderr, "read_upto failed\n");
 		return -1;
-	} else if (result < size) {
+	} else if ((size_t)result < size) {
 		fprintf(stderr, "unexpected EOF\n");
 		return -1;
 	}
