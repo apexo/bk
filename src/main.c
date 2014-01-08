@@ -25,7 +25,7 @@
 #define DEFAULT_BLOCK_SIZE 65536
 #define MAX_HEXREF_SIZE ((MAX_REF_SIZE)*2+1)
 
-static int _check_root_reference(index_t *index, char *ref, size_t ref_len, ondiskidx_t **ondiskidx_ret) {
+static int _check_root_reference(index_t *index, char *ref, ondiskidx_t **ondiskidx_ret) {
 	const size_t len = ref[0], indir = ref[1];
 
 	if (!indir || len < BLOCK_KEY_SIZE) {
@@ -195,7 +195,7 @@ static int read_root_ref_from_stdin(char *temp, char *ref) {
 	return result;
 }
 
-int do_help(int argc, char *argv[]) {
+int do_help(char *argv[]) {
 	fprintf(stdout, "Usage: %s [--help] <command> [<args>]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "Where command is one of:\n");
@@ -207,7 +207,7 @@ int do_help(int argc, char *argv[]) {
 	return 1;
 }
 
-int do_help_backup(int argc, char *argv[]) {
+int do_help_backup(char *argv[]) {
 	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [--dont-save-atime] [--lz4hc] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -v                      Verbose output. Print names of files as they are being backed up.\n");
@@ -223,7 +223,7 @@ int do_help_backup(int argc, char *argv[]) {
 	return 1;
 }
 
-int do_help_mount(int argc, char *argv[]) {
+int do_help_mount(char *argv[]) {
 	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -R,--root-ref           The root reference. May also be entered on stdin.\n");
@@ -231,7 +231,7 @@ int do_help_mount(int argc, char *argv[]) {
 	return 1;
 }
 
-int do_help_info(int argc, char *argv[]) {
+int do_help_info(char *argv[]) {
 	fprintf(stdout, "Usage: %s info <index>...\n", argv[0]);
 	return 1;
 }
@@ -375,14 +375,14 @@ int do_backup(int argc, char *argv[], int idx) {
 
 	if (!path) {
 		fprintf(stderr, "path missing\n");
-		rc = do_help_backup(argc, argv);
+		rc = do_help_backup(argv);
 		goto out;
 	}
 
 	if (!args.list_only) {
 		if (!target) {
 			fprintf(stderr, "target missing\n");
-			rc = do_help_backup(argc, argv);
+			rc = do_help_backup(argv);
 			goto out;
 		}
 
@@ -491,13 +491,13 @@ int do_mount(int argc, char *argv[], int idx) {
 		if (c == 'R' || (!c && option_index == 0)) {
 			if (ref_len) {
 				fprintf(stderr, "duplicate root reference\n");
-				rc = do_help_mount(argc, argv);
+				rc = do_help_mount(argv);
 				goto out;
 			}
 			ref_len = parse_hex_reference(optarg, ref);
 			if (ref_len < 0) {
 				fprintf(stderr, "illegal root reference\n");
-				rc = do_help_mount(argc, argv);
+				rc = do_help_mount(argv);
 				goto out;
 			}
 			// hide ref (from publicly viewable /proc/$$/cmdline)
@@ -526,7 +526,7 @@ int do_mount(int argc, char *argv[], int idx) {
 
 	if (!index.num_ondiskidx) {
 		fprintf(stderr, "at least one index required\n");
-		rc = do_help_mount(argc, argv);
+		rc = do_help_mount(argv);
 		goto out;
 	}
 
@@ -583,7 +583,7 @@ int do_mount(int argc, char *argv[], int idx) {
 	f_mempool = 1;
 
 	ondiskidx_t *ondiskidx;
-	if (_check_root_reference(&index, ref, ref_len, &ondiskidx)) {
+	if (_check_root_reference(&index, ref, &ondiskidx)) {
 		goto out;
 	}
 
@@ -669,7 +669,7 @@ int do_info(int argc, char *argv[], int idx) {
 
 int main(int argc, char *argv[]) {
 	if (argc <= 1) {
-		return do_help(argc, argv);
+		return do_help(argv);
 	}
 
 	if (!strcmp(argv[1], "backup")) {
@@ -680,15 +680,15 @@ int main(int argc, char *argv[]) {
 		return do_info(argc, argv, 2);
 	} else if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "help")) {
 		if (argc > 2 && !strcmp(argv[2], "backup")) {
-			return do_help_backup(argc, argv);
+			return do_help_backup(argv);
 		} else if (argc > 2 && !strcmp(argv[2], "mount")) {
-			return do_help_backup(argc, argv);
+			return do_help_backup(argv);
 		} else if (argc > 2 && !strcmp(argv[2], "info")) {
-			return do_help_info(argc, argv);
+			return do_help_info(argv);
 		} else {
-			return do_help(argc, argv);
+			return do_help(argv);
 		}
 	} else {
-		return do_help(argc, argv);
+		return do_help(argv);
 	}
 }

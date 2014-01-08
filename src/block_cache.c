@@ -27,7 +27,7 @@ int block_cache_init(block_cache_t *cache, size_t blksize) {
 	return 0;
 }
 
-static block_t *_block_cache_get(block_cache_t *cache, inode_cache_t *inode_cache, index_t *index, uint64_t ino, off_t off, int *flag) {
+static block_t *_block_cache_get(block_cache_t *cache, uint64_t ino, off_t off, int *flag) {
 	for (size_t i = 0; i < cache->cached; i++) {
 		if (cache->ino[i] == ino && cache->off[i] == off) {
 			block_t *result = cache->block[i];
@@ -111,7 +111,7 @@ block_t *block_cache_get(block_thread_state_t *block_thread_state, block_cache_t
 	}
 #endif
 	int match = 0;
-	block = _block_cache_get(cache, inode_cache, index, ino, off, &match);
+	block = _block_cache_get(cache, ino, off, &match);
 
 #ifdef MULTITHREADED
 	if (pthread_mutex_unlock(&cache->mutex)) {

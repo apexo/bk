@@ -32,7 +32,7 @@ static void stat_from_inode(ondiskidx_t *ondiskidx, struct stat *stbuf, const in
 	stbuf->st_ctime = inode->ctime;
 }
 
-static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+static void bk_ll_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi __attribute__ ((unused))) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
 
 	const inode_t *inode = inode_cache_lookup(fuse_global_state->inode_cache, ino);
@@ -217,7 +217,7 @@ static void bk_ll_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
  * 1: ".."
  * 2 + x: = more entries, x = ino of next child
  */
-static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
+static void bk_ll_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi __attribute__ ((unused))) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
 	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
 
@@ -331,7 +331,7 @@ static void bk_ll_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi
 	}
 }
 
-static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
+static void bk_ll_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi __attribute__ ((unused))) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
 	fuse_thread_state_t *fuse_thread_state = fuse_thread_state_get(fuse_global_state);
 
@@ -423,7 +423,7 @@ static void bk_ll_readlink(fuse_req_t req, fuse_ino_t ino) {
 	fuse_reply_readlink(req, buf);
 }
 
-static void bk_ll_statfs(fuse_req_t req, fuse_ino_t ino) {
+static void bk_ll_statfs(fuse_req_t req, fuse_ino_t ino __attribute__ ((unused))) {
 	fuse_global_state_t *fuse_global_state = fuse_req_userdata(req);
 	ondiskidx_t *ondiskidx = fuse_global_state->ondiskidx;
 
