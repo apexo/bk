@@ -122,7 +122,7 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 		return -1;
 	}
 
-	void *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, index_fd, 0);
+	char *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, index_fd, 0);
 	if (data == MAP_FAILED) {
 		perror("failed to mmap index");
 		return -1;

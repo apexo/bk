@@ -6,7 +6,7 @@
 #endif
 
 typedef struct mempool_area {
-	void *addr;
+	char *addr;
 	size_t length;
 	size_t index;
 } mempool_area_t;

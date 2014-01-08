@@ -386,7 +386,7 @@ int mtime_index_ondisk_add(mtime_index_t *mi, int fd) {
 		return -1;
 	}
 
-	void *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	char *data = mmap(NULL, (size_t)idx_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	if (data == MAP_FAILED) {
 		perror("failed to mmap mtime index");
 		return -1;
