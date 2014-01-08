@@ -410,7 +410,7 @@ int mtime_index_ondisk_add(mtime_index_t *mi, int fd) {
 	const size_t min_entries = max_entries ? max_entries - MTIME_ENTRIES_PER_PAGE + 1 : 0;
 
 	if (num_entries < min_entries || num_entries > max_entries) {
-		fprintf(stderr, "illegal num_entries: %zd; expected %zd-%zd (based on the mtime index size)\n", num_entries, min_entries, max_entries);
+		fprintf(stderr, "illegal num_entries: %zu; expected %zu-%zu (based on the mtime index size)\n", num_entries, min_entries, max_entries);
 		goto err;
 	}
 

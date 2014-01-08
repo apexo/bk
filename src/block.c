@@ -746,7 +746,7 @@ int block_stats(block_thread_state_t *block_thread_state, block_t *block, index_
 			_block_hash2(index, encryption_key, storage_key);
 
 			if (index_lookup(index, storage_key, &file_offset, &block_size, &compressed_block_size, &ondiskidx)) {
-				fprintf(stderr, "index_lookup failed: indir=%zd, idx=%zd, len=%zd\n", indir, block->idx[indir], block->len[indir]);
+				fprintf(stderr, "index_lookup failed: indir=%zu, idx=%zd, len=%zd\n", indir, block->idx[indir], block->len[indir]);
 				return -1;
 			}
 

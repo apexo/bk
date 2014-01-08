@@ -146,7 +146,7 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 	const size_t min_entries = max_entries ? max_entries - ENTRIES_PER_PAGE + 1 : 0;
 
 	if (num_entries < min_entries || num_entries > max_entries) {
-		fprintf(stderr, "illegal num_entries: %zd; expected %zd-%zd (based on the index size)\n", num_entries, min_entries, max_entries);
+		fprintf(stderr, "illegal num_entries: %zu; expected %zu-%zu (based on the index size)\n", num_entries, min_entries, max_entries);
 		goto err;
 	}
 
