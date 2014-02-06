@@ -10,4 +10,4 @@ Architecture: any
 Depends: libssl1.0.0 (>= 1.0.1e-2), liblz4-0.0 (>= 0.0~r107-1), libfuse2 (>= 2.9.0-2+deb7u1), libc6 (>= 2.13-38)
 Suggests: gnupg | gnupg2
 Description: bk backup tool
-  A backup tool with deduplication, compression, and encryption build-it. Source is maintained at https://github.com/apexo/bk
+  A backup tool with deduplication, compression, and encryption built-in. Source is maintained at https://github.com/apexo/bk
