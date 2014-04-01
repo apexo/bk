@@ -20,7 +20,7 @@ static char* _mmap_locked(size_t size, long page_size, size_t *real_size) {
 
 	char *result = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
 	if (result == MAP_FAILED) {
-		fprintf(stderr, "mmap failed\n");
+		perror("mmap failed");
 		return NULL;
 	}
 
