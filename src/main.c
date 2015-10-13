@@ -214,7 +214,7 @@ int do_help_backup(char *argv[]) {
 	fprintf(stdout, "   -n,--no-act             Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
 	fprintf(stdout, "   --xdev                  Do not descend into directories on other filesystems.\n");
 	fprintf(stdout, "   --create-midx           Create midx for fast, mtime-based deduplication. Potentially unsafe, read the docs! Default: disabled.\n");
-	fprintf(stdout, "   --dont-use-midx         Don't use existing midx. Default: use existing an midx.\n");
+	fprintf(stdout, "   --dont-use-midx         Don't use existing midx. Default: use an existing midx.\n");
 	fprintf(stdout, "   --dont-save-atime       Don't save atime (use ctime instead). May shrink differential backups.\n");
 	fprintf(stdout, "   --lz4hc                 Use LZ4's high compression mode. Significantly slower but saves some space. Decompression is still very fast.\n");
 	fprintf(stdout, "   --ignore-nodump         Ignore nodump (d) attribute. Without this, files/directories with the 'd' attribute will be skipped.\n");
