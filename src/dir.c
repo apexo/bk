@@ -213,6 +213,11 @@ static int _open(dir_write_state_t *dws, int dirfd, char *name, int *fd, struct 
 	return 1;
 }
 
+#define LOG_FILE(suffix2) if (args->verbose) {\
+		const char *suffix1 = S_ISDIR(buf.st_mode) ? "/" : "";\
+		fprintf(stdout, "%s%s%s\n", dws->path, suffix1, (suffix2));\
+	}
+
 static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block, int dirfd, char *name) {
 	if (*name && *name == '.' && (!*(name+1) || (*(name+1) == '.' && !*(name+2)))) {
 		return 0;
@@ -252,13 +257,8 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 
 	int xdev = S_ISDIR(buf.st_mode) && args->xdev && args->dev != buf.st_dev;
 
-	if (args->verbose) {
-		const char *suffix1 = S_ISDIR(buf.st_mode) ? "/" : "";
-		const char *suffix2 = include ? (xdev ? " (xdev)": "") : " (excluded)";
-		fprintf(stdout, "%s%s%s\n", dws->path, suffix1, suffix2);
-	}
-
 	if (!include) {
+		LOG_FILE(" (excluded)")
 		rc = 0;
 		goto cleanup;
 	}
@@ -271,8 +271,11 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 	int ref_len = 0;
 
 	if (xdev) {
+		LOG_FILE(" (xdev)")
 		goto skip;
 	}
+
+	LOG_FILE("");
 
 	if (S_ISREG(buf.st_mode)) {
 		if (!args->dont_use_midx) {
