@@ -208,7 +208,7 @@ int do_help(char *argv[]) {
 }
 
 int do_help_backup(char *argv[]) {
-	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [--dont-save-atime] [--lz4hc] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
+	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [--dont-save-atime] [--lz4hc] [--ignore-nodump] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -v                      Verbose output. Print names of files as they are being backed up.\n");
 	fprintf(stdout, "   -n,--no-act             Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
@@ -217,6 +217,7 @@ int do_help_backup(char *argv[]) {
 	fprintf(stdout, "   --dont-use-midx         Don't use existing midx. Default: use existing an midx.\n");
 	fprintf(stdout, "   --dont-save-atime       Don't save atime (use ctime instead). May shrink differential backups.\n");
 	fprintf(stdout, "   --lz4hc                 Use LZ4's high compression mode. Significantly slower but saves some space. Decompression is still very fast.\n");
+	fprintf(stdout, "   --ignore-nodump         Ignore nodump (d) attribute. Without this, files/directories with the 'd' attribute will be skipped.\n");
 	fprintf(stdout, "   -E,--exclude <pattern>  Exclude files/directories. E.g.: home/*/.cache, **/.*.swp\n");
 	fprintf(stdout, "   -I,--include <pattern>  Include files/directories.\n");
 	fprintf(stdout, "   --blksize <n>           Set block size; valid values for n range from 0 (4 KiByte) to 19 (2 GiByte); 4 (64 kiByte) is the default\n");
@@ -252,6 +253,7 @@ int do_backup(int argc, char *argv[], int idx) {
 		{"dont-use-midx", no_argument, 0, 0 },
 		{"dont-save-atime", no_argument, 0, 0 },
 		{"lz4hc",   no_argument, 0, 0 },
+		{"ignore-nodump", no_argument, 0, 0 },
 		{0,         0,                 0, 0 }
 	};
 
@@ -347,6 +349,10 @@ int do_backup(int argc, char *argv[], int idx) {
 
 		if (!c && option_index == 8) {
 			args.lz4hc = 1;
+		}
+
+		if (!c && option_index == 9) {
+			args.ignore_nodump = 1;
 		}
 
 		if (c == 1) {

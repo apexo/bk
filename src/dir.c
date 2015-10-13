@@ -12,6 +12,9 @@
 #include <sys/stat.h>
 #include <lz4.h>
 
+#include <sys/ioctl.h>
+#include <linux/fs.h>
+
 #include "dir.h"
 #include "mixed_limits.h"
 
@@ -275,6 +278,28 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 		goto skip;
 	}
 
+	if (S_ISDIR(buf.st_mode) || S_ISREG(buf.st_mode)) {
+		if ((ret = _open(dws, dirfd, name, &fd, &buf)) <= 0) {
+			rc = ret;
+			goto cleanup;
+		}
+
+		int attr;
+		if (ioctl(fd, FS_IOC_GETFLAGS, &attr)) {
+			perror("ioctl FS_IOC_GETFLAGS failed");
+			goto cleanup;
+		}
+		if (attr & FS_NODUMP_FL) {
+			LOG_FILE(" (nodump)")
+			if (S_ISREG(buf.st_mode) || args->list_only) {
+				rc = 0;
+				goto cleanup;
+			} else {
+				goto skip;
+			}
+		}
+	}
+
 	LOG_FILE("");
 
 	if (S_ISREG(buf.st_mode)) {
@@ -287,10 +312,6 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 			}
 		}
 
-		if ((ret = _open(dws, dirfd, name, &fd, &buf)) <= 0) {
-			rc = ret;
-			goto cleanup;
-		}
 		if (_dir_write_file(dws, depth + 1, block_next, fd)) {
 			fprintf(stderr, "_dir_write_file failed: %s\n", name);
 			goto cleanup;
@@ -299,10 +320,6 @@ static int _dir_entry_write(dir_write_state_t *dws, size_t depth, block_t *block
 			fprintf(stderr, "file size changed: %zd -> %zd: %s\n", buf.st_size, block_next->raw_bytes, name);
 		}
 	} else if (S_ISDIR(buf.st_mode)) {
-		if ((ret = _open(dws, dirfd, name, &fd, &buf)) <= 0) {
-			rc = ret;
-			goto cleanup;
-		}
 		if (_dir_write_dir(dws, depth + 1, block_next, fd)) {
 			fprintf(stderr, "_dir_write_dir failed: %s\n", name);
 			goto cleanup;

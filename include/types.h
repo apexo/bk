@@ -24,6 +24,7 @@ typedef struct args {
 	int dont_use_midx;
 	int dont_save_atime;
 	int lz4hc;
+	int ignore_nodump;
 	int stats;
 	filter_t filter;
 
