@@ -272,7 +272,7 @@ int write_all(int fd, char* data, size_t size) {
 			fprintf(stderr, "disk full?\n");
 			return -1;
 		}
-		assert(bytes_written <= chunk);
+		assert((size_t)bytes_written <= chunk);
 		size -= bytes_written;
 		data += bytes_written;
 	}
@@ -290,7 +290,7 @@ ssize_t read_upto(int fd, char* data, size_t size) {
 	while (remaining) {
 		const size_t chunk = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
 		const ssize_t bytes_read = read(fd, data, chunk);
-		assert(bytes_read <= chunk);
+		assert((bytes_read < 0) || ((size_t)bytes_read <= chunk));
 		if (bytes_read < 0) {
 			perror("read failed");
 			return -1;

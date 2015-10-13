@@ -130,7 +130,7 @@ static int _block_allocate_locked_mem(block_t *block) {
 			ofs += (size_t)(-ofs) % ALIGN;
 		}
 	}
-	assert(ofs + (size_t)(-ofs)%page_size == locked_bytes);
+	assert(ofs + (size_t)(-ofs)%page_size == (size_t)locked_bytes);
 
 	return 0;
 }
@@ -228,7 +228,7 @@ static int _block_crypt(const char *src, size_t n, char *dst, const block_key_t 
 		return -1;
 	}
 
-	assert(len + f_len == n);
+	assert(len + f_len == (int)n);
 
 	EVP_CIPHER_CTX_cleanup(&ctx);
 	return 0;

@@ -515,7 +515,7 @@ ssize_t dir_entry_read(
 			return 0;
 		}
 		n += m;
-		assert(n <= req);
+		assert((size_t)n <= req);
 	} while ((size_t)n < req);
 
 	size_t dnamelen = be16toh(dent->namelen);
@@ -537,7 +537,7 @@ ssize_t dir_entry_read(
 			return -1;
 		}
 		n += m;
-		assert(n <= req);
+		assert((size_t)n <= req);
 	} while ((size_t)n <  req);
 
 	*dentry = dent;

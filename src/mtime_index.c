@@ -58,7 +58,7 @@ static int _mtime_crypt(const char *src, size_t n, char *dst, block_key_t encryp
 		return -1;
 	}
 
-	assert(len + f_len == n);
+	assert(len + f_len == (int)n);
 
 	EVP_CIPHER_CTX_cleanup(&ctx);
 	return 0;

@@ -37,7 +37,7 @@ static int _dir_index_seed(dir_index_t *dir_index, mempool_t *mempool) {
 			perror("read failed");
 			return -1;
 		}
-		assert(n <= remaining);
+		assert((size_t)n <= remaining);
 		remaining -= n;
 		idx += n;
 	}
