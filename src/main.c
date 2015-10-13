@@ -224,7 +224,7 @@ int do_help_backup(char *argv[]) {
 }
 
 int do_help_mount(char *argv[]) {
-	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
+	fprintf(stdout, "Usage: %s mount [-R|--root-ref <reference>] [--stats] <index>... [--] <mountpoint> [fuse-options]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -R,--root-ref           The root reference. May also be entered on stdin.\n");
 	fprintf(stdout, "   --stats                 Calculate number of blocks used.\n");
