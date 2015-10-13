@@ -5,6 +5,8 @@ typedef struct filter_rule {
 	size_t count;
 	char **path;
 	int include;
+	char *pattern;
+	int hit_count;
 } filter_rule_t;
 
 typedef struct filter_match {
@@ -13,6 +15,7 @@ typedef struct filter_match {
 	filter_rule_t **rules;
 	size_t *idx;
 	int include;
+	filter_rule_t *this_rule;
 } filter_match_t;
 
 typedef struct filter {
@@ -42,5 +45,7 @@ void filter_exit_directory(filter_t *filter);
  * returns -1 on error, 0 when the leaf is filtered out, and 1 on success
  */
 int filter_test_leaf(filter_t *filter, const char *name);
+
+void filter_print_stats(filter_t *filter);
 
 #endif

@@ -437,6 +437,9 @@ out:
 		hex_format(hex_ref, ref, ref_len);
 		fprintf(stdout, "%s\n", hex_ref);
 	}
+	if (args.verbose && args.list_only) {
+		filter_print_stats(&args.filter);
+	}
 	if (f_dws) {
 		dir_write_state_free(&dws);
 	}

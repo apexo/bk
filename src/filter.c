@@ -65,10 +65,12 @@ static int filter_rule_init(filter_rule_t *filter_rule, int include, const char 
 	filter_rule->count = path_idx;
 	filter_rule->path = path;
 	filter_rule->include = include;
+	filter_rule->pattern = strdup(pattern);
 	return 0;
 }
 
 static void filter_rule_free(filter_rule_t *filter_rule) {
+	free(filter_rule->pattern);
 	free(filter_rule->path[0]);
 	free(filter_rule->path);
 }
@@ -187,6 +189,7 @@ int filter_enter_directory(filter_t *filter, const char *name) {
 	const filter_match_t *m1 = filter->match + filter->depth - 1;
 	filter_match_t *m2 = filter->match + filter->depth;
 	m2->count = 0;
+	m2->this_rule = NULL;
 
 	filter_rule_t *matched_rule = NULL;
 
@@ -249,8 +252,14 @@ int filter_enter_directory(filter_t *filter, const char *name) {
 
 	if (matched_rule) {
 		m2->include = matched_rule->include;
+		m2->this_rule = matched_rule;
 	} else {
 		m2->include = m1->include;
+		m2->this_rule = m1->this_rule;
+	}
+
+	if (m2->this_rule) {
+		m2->this_rule->hit_count++;
 	}
 
 	if (m2->include) {
@@ -284,9 +293,11 @@ int filter_test_leaf(filter_t *filter, const char *name) {
 					return -1;
 				}
 				if (match == 2) {
+					m1->rules[i]->hit_count++;
 					return m1->rules[i]->include;
 				}
 			} else {
+				m1->rules[i]->hit_count++;
 				return m1->rules[i]->include;
 			}
 		} else {
@@ -296,11 +307,15 @@ int filter_test_leaf(filter_t *filter, const char *name) {
 				return -1;
 			}
 			if (match == 2) {
+				m1->rules[i]->hit_count++;
 				return m1->rules[i]->include;
 			}
 		}
 	}
 
+	if (m1->this_rule) {
+		m1->this_rule->hit_count++;
+	}
 	return m1->include;
 }
 
@@ -318,5 +333,16 @@ void filter_free(filter_t *filter) {
 	}
 	if (filter->max_depth) {
 		free(filter->match);
+	}
+}
+
+void filter_print_stats(filter_t *filter) {
+	if (!filter->rule_count) {
+		return;
+	}
+	fprintf(stdout, "\n");
+	fprintf(stdout, "filter matches:\n");
+	for (size_t i = 0; i < filter->rule_count; i++) {
+		fprintf(stdout, "\t-%s %s: %d\n", filter->rules[i]->include ? "I" : "E", filter->rules[i]->pattern, filter->rules[i]->hit_count);
 	}
 }
