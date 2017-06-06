@@ -46,6 +46,9 @@ static int _mremap_locked(size_t size, long page_size, size_t *real_size, char *
 }
 
 static void _fuse_thread_state_free(fuse_thread_state_t *fuse_thread_state) {
+	if (fuse_thread_state->block_thread_state.cipher_context) {
+		EVP_CIPHER_CTX_free(fuse_thread_state->block_thread_state.cipher_context);
+	}
 	if (fuse_thread_state->block_thread_state.crypt) {
 		free(fuse_thread_state->block_thread_state.crypt);
 	}
@@ -88,6 +91,12 @@ static fuse_thread_state_t *_fuse_thread_state_alloc(fuse_global_state_t *global
 		perror("out of memory");
 		goto err;
 	}
+
+	if (!(fuse_thread_state.block_thread_state.cipher_context = EVP_CIPHER_CTX_new())) {
+		fprintf(stderr, "EVP_CIPHER_CTX_new failed\n");
+		goto err;
+	}
+
 
 	char* locked = _mmap_locked(locked_size, global_state->page_size, &fuse_thread_state.locked_size);
 	if (!locked) {
