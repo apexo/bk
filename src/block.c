@@ -56,7 +56,7 @@ static void _set_limits(block_t *block) {
 	const off_t block_ref_limit = blksize / BLOCK_KEY_SIZE;
 	off_t blocks = (OFFSET_MAX / blksize) + 1;
 
-	block->limit[0] = (uoff_t)OFFSET_MAX > blksize ? blksize : OFFSET_MAX;
+	block->limit[0] = (uoff_t)OFFSET_MAX > blksize ? blksize : (size_t)OFFSET_MAX;
 	for (size_t i = 1; i <= MAX_INDIRECTION; i++) {
 		if (i == MAX_INDIRECTION && blocks > inline_blocks) {
 			// we cannot store the maximal file size with the given block size
