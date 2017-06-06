@@ -193,7 +193,7 @@ static const char *_block_compress(const char *src, size_t n, char *dst, block_s
 	}
 }
 
-static int _block_crypt(const char *src, size_t n, char *dst, const block_key_t encryption_key, int enc) {
+static int _block_crypt(EVP_CIPHER_CTX *ctx, const char *src, size_t n, char *dst, const block_key_t encryption_key, int enc) {
 	const EVP_CIPHER *cipher = EVP_aes_256_ctr();
 	if (!cipher) {
 		fprintf(stderr, "EVP_aes_256_ctr failed\n");
@@ -205,32 +205,29 @@ static int _block_crypt(const char *src, size_t n, char *dst, const block_key_t 
 	memset(iv, 0, 12);
 	*(uint32_t*)(iv + 12) = htobe32(n);
 
-	EVP_CIPHER_CTX ctx;
-	EVP_CIPHER_CTX_init(&ctx);
-
-	if (!EVP_CipherInit_ex(&ctx, cipher, NULL, (unsigned char*)encryption_key, iv, enc)) {
+	if (!EVP_CipherInit_ex(ctx, cipher, NULL, (unsigned char*)encryption_key, iv, enc)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherInit_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	int len;
- 	if (!EVP_CipherUpdate(&ctx, (unsigned char*)dst, &len, (const unsigned char*)src, n)) {
+	if (!EVP_CipherUpdate(ctx, (unsigned char*)dst, &len, (const unsigned char*)src, n)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherUpdate failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	int f_len;
-	if (!EVP_CipherFinal_ex(&ctx, (unsigned char*)(dst+len), &f_len)) {
+	if (!EVP_CipherFinal_ex(ctx, (unsigned char*)(dst+len), &f_len)) {
 		fprintf(stderr, "error %scrypting block; EVP_CipherFinal_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	assert(len + f_len == (int)n);
 
-	EVP_CIPHER_CTX_cleanup(&ctx);
+	EVP_CIPHER_CTX_reset(ctx);
 	return 0;
 }
 
@@ -277,7 +274,7 @@ static int _block_dedup(block_thread_state_t *block_thread_state, block_t *block
 
 	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
 		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, &compressed_block_size, block_thread_state->lz4hc);
-		if (_block_crypt(compressed_data, compressed_block_size, block_thread_state->crypt, encryption_key, 1)) {
+		if (_block_crypt(block_thread_state->cipher_context, compressed_data, compressed_block_size, block_thread_state->crypt, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
 			return -1;
 		}
@@ -515,7 +512,7 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 
 	char *decrypted = compressed_block_size < block_size ? block_thread_state->pack : dst;
 
-	if (_block_crypt(block_thread_state->crypt, compressed_block_size, decrypted, encryption_key, 0)) {
+	if (_block_crypt(block_thread_state->cipher_context, block_thread_state->crypt, compressed_block_size, decrypted, encryption_key, 0)) {
 		fprintf(stderr, "_block_crypt failed\n");
 		return -1;
 	}

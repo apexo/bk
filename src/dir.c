@@ -39,6 +39,10 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 		goto oom;
 	}
 
+	if (!(dws->block_thread_state.cipher_context = EVP_CIPHER_CTX_new())) {
+		goto oom;
+	}
+
 	if (block_stack_init(&dws->block_stack, blksize, RECURSION_LIMIT)) {
 		fprintf(stderr, "block_stack_init failed\n");
 		goto err;
@@ -56,6 +60,9 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 oom:
 	perror("out of memory");
 err:
+	if (dws->block_thread_state.cipher_context) {
+		EVP_CIPHER_CTX_free(dws->block_thread_state.cipher_context);
+	}
 	if (dws->block_thread_state.crypt) {
 		free(dws->block_thread_state.crypt);
 	}
@@ -73,6 +80,7 @@ err:
 
 void dir_write_state_free(dir_write_state_t *dws) {
 	block_stack_free(&dws->block_stack);
+	EVP_CIPHER_CTX_free(dws->block_thread_state.cipher_context);
 	free(dws->block_thread_state.crypt);
 	free(dws->block_thread_state.pack);
 	free(dws->path);

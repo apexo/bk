@@ -8,6 +8,7 @@
  * may be less accurate than content-based deduplication
  */
 
+#include <openssl/evp.h>
 #include <openssl/sha.h>
 
 #include "types.h"
@@ -66,6 +67,7 @@ typedef struct mtime_index {
 
 	block_key_t value_encryption_key;
 	SHA256_CTX key_hash_context;
+	EVP_CIPHER_CTX *cipher_context;
 
 	mtime_index_header_t header;
 } mtime_index_t;

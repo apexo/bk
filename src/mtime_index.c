@@ -28,39 +28,36 @@ static void _mtime_hash(mtime_index_t *mi, block_key_t key, const char *path, si
 	SHA256_Final((unsigned char*)key, &ctx);
 }
 
-static int _mtime_crypt(const char *src, size_t n, char *dst, block_key_t encryption_key, int enc, char *iv) {
+static int _mtime_crypt(EVP_CIPHER_CTX *ctx, const char *src, size_t n, char *dst, block_key_t encryption_key, int enc, char *iv) {
 	const EVP_CIPHER *cipher = EVP_aes_256_ctr();
 	if (!cipher) {
 		fprintf(stderr, "EVP_aes_256_ctr failed\n");
 		return -1;
 	}
 
-	EVP_CIPHER_CTX ctx;
-	EVP_CIPHER_CTX_init(&ctx);
-
-	if (!EVP_CipherInit_ex(&ctx, cipher, NULL, (unsigned char*)encryption_key, (unsigned char*)iv, enc)) {
+	if (!EVP_CipherInit_ex(ctx, cipher, NULL, (unsigned char*)encryption_key, (unsigned char*)iv, enc)) {
 		fprintf(stderr, "error %scrypting ref; EVP_CipherInit_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	int len;
- 	if (!EVP_CipherUpdate(&ctx, (unsigned char*)dst, &len, (const unsigned char*)src, n)) {
+	if (!EVP_CipherUpdate(ctx, (unsigned char*)dst, &len, (const unsigned char*)src, n)) {
 		fprintf(stderr, "error %scrypting ref; EVP_CipherUpdate failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	int f_len;
-	if (!EVP_CipherFinal_ex(&ctx, (unsigned char*)(dst+len), &f_len)) {
+	if (!EVP_CipherFinal_ex(ctx, (unsigned char*)(dst+len), &f_len)) {
 		fprintf(stderr, "error %scrypting ref; EVP_CipherFinal_ex failed: %s\n", enc?"en":"de", ERR_error_string(ERR_get_error(), NULL));
-		EVP_CIPHER_CTX_cleanup(&ctx);
+		EVP_CIPHER_CTX_reset(ctx);
 		return -1;
 	}
 
 	assert(len + f_len == (int)n);
 
-	EVP_CIPHER_CTX_cleanup(&ctx);
+	EVP_CIPHER_CTX_reset(ctx);
 	return 0;
 }
 
@@ -135,6 +132,11 @@ int mtime_index_init(mtime_index_t *mi, const char *salt, size_t salt_len) {
 		return -1;
 	}
 
+	if (!(mi->cipher_context = EVP_CIPHER_CTX_new())) {
+		mtime_index_free(mi);
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -197,7 +199,7 @@ int mtime_index_add(mtime_index_t *mi, const char *path, size_t path_len, uint64
 
 	size_t idx = range[1].num_entries ? 0 : 1;
 	_mtime_hash(mi, range[idx].pages[0].key[0], path, path_len, size, mtime);
-	if (_mtime_crypt(temp, MAX_REF_SIZE, range[idx].pages[0].ref[0], mi->value_encryption_key, 1, range[idx].pages[0].key[0])) {
+	if (_mtime_crypt(mi->cipher_context, temp, MAX_REF_SIZE, range[idx].pages[0].ref[0], mi->value_encryption_key, 1, range[idx].pages[0].key[0])) {
 		fprintf(stderr, "_mtime_crypt failed\n");
 		return -1;
 	}
@@ -352,7 +354,7 @@ int mtime_index_lookup(mtime_index_t* mi, const char *path, size_t path_len, uin
 	return 0;
 
 decrypt:
-	if (_mtime_crypt(temp_ref, MAX_REF_SIZE, ref, mi->value_encryption_key, 0, key)) {
+	if (_mtime_crypt(mi->cipher_context, temp_ref, MAX_REF_SIZE, ref, mi->value_encryption_key, 0, key)) {
 		fprintf(stderr, "(in mtime_index_lookup) _mtime_crypt failed\n");
 		return 0;
 	}
@@ -433,6 +435,9 @@ err:
 
 
 void mtime_index_free(mtime_index_t *mi) {
+	if (mi->cipher_context) {
+		EVP_CIPHER_CTX_free(mi->cipher_context);
+	}
 	for (size_t i = 0; i < mi->num_ranges; i++) {
 		free(mi->range[i].pages);
 	}

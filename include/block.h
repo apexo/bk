@@ -1,6 +1,8 @@
 #ifndef BK_BLOCK_H
 #define BK_BLOCK_H
 
+#include <openssl/evp.h>
+
 #include <fcntl.h>
 #include <stdint.h>
 
@@ -10,6 +12,7 @@ typedef struct block_thread_state {
 	char* pack; // LZ4_compressBound(blksize), in locked memory
 	char* crypt; // blksize
 	int lz4hc;
+	EVP_CIPHER_CTX *cipher_context;
 } block_thread_state_t;
 
 typedef struct block {
