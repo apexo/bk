@@ -135,6 +135,11 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 		goto err;
 	}
 
+	if (memcmp(header->reserved, IDX_RESERVED, strlen(IDX_RESERVED)+1)) {
+		fprintf(stderr, "index reserved fields not 0\n");
+		goto err;
+	}
+
 	if (be32toh(header->version) != VERSION) {
 		fprintf(stderr, "unsupported index version\n");
 		goto err;

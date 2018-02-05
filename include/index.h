@@ -15,6 +15,7 @@
 #define MAX_REFERENCED_INDICES 124
 
 #define MAGIC "BK.IDX\0"
+#define IDX_RESERVED "\0\0\0\0\0\0\0"
 #define VERSION 1
 
 typedef struct index_header {
