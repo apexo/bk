@@ -183,7 +183,7 @@ static void _block_hash2(index_t *index, const block_key_t encryption_key, block
 #define IS_COMPRESSIBLE(size, compressed) ((compressed > 0) && (((unsigned int)compressed) < (size)) && ((size) - (unsigned int)(compressed) > (size) / 20))
 
 static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size, int lz4hc) {
-	int compressed = lz4hc ? LZ4_compressHC(src, dst, n) : LZ4_compress(src, dst, n);
+	int compressed = lz4hc ? LZ4_compress_HC(src, dst, n, LZ4_compressBound(n), 9) : LZ4_compress_default(src, dst, n, LZ4_compressBound(n));
 	if (IS_COMPRESSIBLE(n, compressed)) {
 		*compressed_block_size = compressed;
 		return dst;
