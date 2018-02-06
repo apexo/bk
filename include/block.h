@@ -9,9 +9,10 @@
 #define MAX_INDIRECTION 4
 
 typedef struct block_thread_state {
-	char* pack; // LZ4_compressBound(blksize), in locked memory
+	char* pack; // packSize bytes, in locked memory
 	char* crypt; // blksize
-	int lz4hc;
+	size_t packSize;  // compress_bound(blksize)
+	int compression;
 	EVP_CIPHER_CTX *cipher_context;
 } block_thread_state_t;
 

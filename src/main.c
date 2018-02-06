@@ -20,6 +20,7 @@
 #include "mempool.h"
 #include "mtime_index.h"
 #include "salt.h"
+#include "compress.h"
 
 
 #define DEFAULT_BLOCK_SIZE 65536
@@ -208,7 +209,7 @@ int do_help(char *argv[]) {
 }
 
 int do_help_backup(char *argv[]) {
-	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [--dont-save-atime] [--lz4hc] [--ignore-nodump] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
+	fprintf(stdout, "Usage: %s backup [-v] [-n|--no-act] [--xdev] [--create-midx] [--dont-use-midx] [--dont-save-atime] [--lz4|--lz4hc|--zstd] [--ignore-nodump] [-E|--exclude|-I|--include <pattern>...] <path> [<target> [<index>...]]\n", argv[0]);
 	fprintf(stdout, "\n");
 	fprintf(stdout, "   -v                      Verbose output. Print names of files as they are being backed up.\n");
 	fprintf(stdout, "   -n,--no-act             Don't write any outputs. Just walk directories and print what would be backed up. Implies -v.\n");
@@ -216,7 +217,21 @@ int do_help_backup(char *argv[]) {
 	fprintf(stdout, "   --create-midx           Create midx for fast, mtime-based deduplication. Potentially unsafe, read the docs! Default: disabled.\n");
 	fprintf(stdout, "   --dont-use-midx         Don't use existing midx. Default: use an existing midx.\n");
 	fprintf(stdout, "   --dont-save-atime       Don't save atime (use ctime instead). May shrink differential backups.\n");
+#ifndef NO_LZ4
+	fprintf(stdout, "   --lz4                   Use LZ4 in default compression mode. Fast, but doesn't compress very good%s.\n",
+#ifdef NO_ZSTD
+		" (default)"
+#else
+		""
+#endif
+	);
+#ifndef NO_LZ4HZ
 	fprintf(stdout, "   --lz4hc                 Use LZ4's high compression mode. Significantly slower but saves some space. Decompression is still very fast.\n");
+#endif
+#endif
+#ifndef NO_ZSTD
+	fprintf(stdout, "   --zstd                  Use ZSTD for compression. Much better performance than LZ4 (default).\n");
+#endif
 	fprintf(stdout, "   --ignore-nodump         Ignore nodump (d) attribute. Without this, files/directories with the 'd' attribute will be skipped.\n");
 	fprintf(stdout, "   -E,--exclude <pattern>  Exclude files/directories. E.g.: home/*/.cache, **/.*.swp\n");
 	fprintf(stdout, "   -I,--include <pattern>  Include files/directories.\n");
@@ -254,11 +269,24 @@ int do_backup(int argc, char *argv[], int idx) {
 		{"dont-save-atime", no_argument, 0, 0 },
 		{"lz4hc",   no_argument, 0, 0 },
 		{"ignore-nodump", no_argument, 0, 0 },
+		{"lz4",     no_argument, 0, 0 },
+		{"zstd",    no_argument, 0, 0 },
 		{0,         0,                 0, 0 }
 	};
 
 	args_t args;
 	memset(&args, 0, sizeof(args_t));
+	args.compression =
+#ifndef NO_ZSTD
+		COMPRESS_ZSTD;
+#else
+#ifndef NO_LZ4
+		COMPRESS_LZ4;
+#else
+		0;
+#endif
+#endif
+
 	if (filter_init(&args.filter, 0)) {
 		fprintf(stderr, "filter_init failed\n");
 		goto out;
@@ -348,11 +376,19 @@ int do_backup(int argc, char *argv[], int idx) {
 		}
 
 		if (!c && option_index == 8) {
-			args.lz4hc = 1;
+			args.compression = COMPRESS_LZ4HC;
 		}
 
 		if (!c && option_index == 9) {
 			args.ignore_nodump = 1;
+		}
+
+		if (!c && option_index == 10) {
+			args.compression = COMPRESS_LZ4;
+		}
+
+		if (!c && option_index == 11) {
+			args.compression = COMPRESS_ZSTD;
 		}
 
 		if (c == 1) {
@@ -378,6 +414,8 @@ int do_backup(int argc, char *argv[], int idx) {
 		fprintf(stderr, "index_set_blksize failed\n");
 		goto out;
 	}
+
+	index_set_compression(&index, args.compression);
 
 	if (!path) {
 		fprintf(stderr, "path missing\n");

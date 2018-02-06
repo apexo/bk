@@ -17,6 +17,7 @@
 
 #include "dir.h"
 #include "mixed_limits.h"
+#include "compress.h"
 
 #define RECURSION_LIMIT 100
 
@@ -31,7 +32,9 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 		goto oom;
 	}
 
-	if (!(dws->block_thread_state.pack = malloc(LZ4_compressBound(blksize)))) {
+	dws->block_thread_state.packSize = compress_bound(blksize, args->compression);
+
+	if (dws->block_thread_state.packSize && !(dws->block_thread_state.pack = malloc(dws->block_thread_state.packSize))) {
 		goto oom;
 	}
 
@@ -53,7 +56,7 @@ int dir_write_state_init(dir_write_state_t *dws, args_t *args, index_t *index, m
 	dws->mtime_index = mtime_index;
 	dws->blksize = blksize;
 	dws->path_capacity = PATH_MAX;
-	dws->block_thread_state.lz4hc = args->lz4hc;
+	dws->block_thread_state.compression = args->compression;
 
 	return 0;
 

@@ -6,8 +6,6 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
-#include <lz4.h>
-#include <lz4hc.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +13,7 @@
 
 #include "block.h"
 #include "mixed_limits.h"
+#include "compress.h"
 
 void block_free(block_t *block);
 
@@ -180,10 +179,10 @@ static void _block_hash2(index_t *index, const block_key_t encryption_key, block
 }
 
 // only store compressed data if compressible by at least 5%
-#define IS_COMPRESSIBLE(size, compressed) ((compressed > 0) && (((unsigned int)compressed) < (size)) && ((size) - (unsigned int)(compressed) > (size) / 20))
+#define IS_COMPRESSIBLE(size, compressed) ((compressed > 0) && ((compressed) < (size)) && ((size) - (compressed) > (size) / 20))
 
-static const char *_block_compress(const char *src, size_t n, char *dst, block_size_t *compressed_block_size, int lz4hc) {
-	int compressed = lz4hc ? LZ4_compress_HC(src, dst, n, LZ4_compressBound(n), 9) : LZ4_compress_default(src, dst, n, LZ4_compressBound(n));
+static const char *_block_compress(const char *src, size_t n, char *dst, size_t dstSize, block_size_t *compressed_block_size, int compression) {
+	size_t compressed = compress_compress(src, n, dst, dstSize, compression);
 	if (IS_COMPRESSIBLE(n, compressed)) {
 		*compressed_block_size = compressed;
 		return dst;
@@ -273,7 +272,7 @@ static int _block_dedup(block_thread_state_t *block_thread_state, block_t *block
 	index->header.total_bytes += block_size;
 
 	if (index_lookup(index, storage_key, &file_offset, &temp_block_size, &compressed_block_size, &ondiskidx)) {
-		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, &compressed_block_size, block_thread_state->lz4hc);
+		const char* compressed_data = _block_compress(block_data, block_size, block_thread_state->pack, block_thread_state->packSize, &compressed_block_size, block_thread_state->compression);
 		if (_block_crypt(block_thread_state->cipher_context, compressed_data, compressed_block_size, block_thread_state->crypt, encryption_key, 1)) {
 			fprintf(stderr, "_block_crypt failed\n");
 			return -1;
@@ -518,14 +517,14 @@ static ssize_t _block_fetch(block_thread_state_t *block_thread_state, block_t *b
 	}
 
 	if (compressed_block_size < block_size) {
-		int n = LZ4_decompress_safe((const char*)decrypted, (char*)dst, compressed_block_size, size);
-		if (n < 0) {
-			fprintf(stderr, "LZ4_decompress_safe failed\n");
+		size_t n = compress_decompress((const char*)decrypted, compressed_block_size, (char*)dst, size, ondiskidx->header->compression);
+		if (!n) {
+			fprintf(stderr, "compress_decompress failed\n");
 			return -1;
 		}
 
-		if ((unsigned int)n != block_size) {
-			fprintf(stderr, "unexpected LZ4_decompress_safe result\n");
+		if (n != block_size) {
+			fprintf(stderr, "unexpected compress_decompress result\n");
 			return -1;
 		}
 	}

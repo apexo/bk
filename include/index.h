@@ -15,7 +15,7 @@
 #define MAX_REFERENCED_INDICES 124
 
 #define MAGIC "BK.IDX\0"
-#define IDX_RESERVED "\0\0\0\0\0\0\0"
+#define IDX_RESERVED "\0\0\0\0\0\0"
 #define VERSION 1
 
 typedef struct index_header {
@@ -25,7 +25,8 @@ typedef struct index_header {
 	uint32_t version;
 	uint32_t blksize;
 	uint64_t num_entries;
-	char reserved[8];
+	uint8_t compression;
+	char reserved[7];
 
 	uint64_t total_blocks;
 	uint64_t total_bytes;
@@ -94,6 +95,7 @@ typedef struct index {
 
 int index_init(index_t *index, int readonly, const char *salt, size_t salt_len);
 int index_set_blksize(index_t *index, block_size_t blksize);
+void index_set_compression(index_t *index, int compression);
 int index_free(index_t *index);
 int index_ondiskidx_add(index_t *index, int index_fd, int data_fd);
 int index_add_block(index_t *index, block_key_t block_key, file_offset_t file_offset, block_size_t block_size, block_size_t compressed_block_size);

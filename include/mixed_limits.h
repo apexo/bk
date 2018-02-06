@@ -13,6 +13,7 @@ typedef uint64_t uoff_t;
 
 #define MIN(a,b) ((a)<(b)?(a):(b))
 
+#define INT_SIZE_MAX ((int)MIN(INT_MAX, SIZE_MAX))
 #define LONG_SIZE_MAX ((long)MIN(LONG_MAX,SIZE_MAX))
 #define OFFSET_SIZE_MAX ((off_t)MIN(OFFSET_MAX, SIZE_MAX))
 #define SIZE_OFFSET_MAX ((size_t)MIN(OFFSET_MAX, SIZE_MAX))

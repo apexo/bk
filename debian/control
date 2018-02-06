@@ -2,12 +2,12 @@ Source: bk
 Section: admin
 Priority: extra
 Maintainer: Christian Schubert <mail@apexo.de>
-Build-Depends: debhelper (>= 4.0.0), libssl-dev (>= 1.1.0), liblz4-dev (>= 1.8.0-1), libfuse-dev (>= 2.9.0-2+deb7u1), libc6-dev (>= 2.13-38)
+Build-Depends: debhelper (>= 4.0.0), libssl-dev (>= 1.1.0), liblz4-dev (>= 1.8.0-1), libfuse-dev (>= 2.9.0-2+deb7u1), libc6-dev (>= 2.13-38), libzstd-dev (>= 1.3.3)
 Standards-Version: 3.9.5
 
 Package: bk
 Architecture: any
-Depends: libssl1.1 (>= 1.1.0), liblz4-1 (>= 1.8.0-1), libfuse2 (>= 2.9.0-2+deb7u1), libc6 (>= 2.13-38)
+Depends: libssl1.1 (>= 1.1.0), liblz4-1 (>= 1.8.0-1), libfuse2 (>= 2.9.0-2+deb7u1), libc6 (>= 2.13-38), libzstd1 (>= 1.3.3)
 Suggests: gnupg | gnupg2
 Description: bk backup tool
   A backup tool with deduplication, compression, and encryption built-in. Source is maintained at https://github.com/apexo/bk

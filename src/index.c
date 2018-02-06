@@ -13,6 +13,7 @@
 #include "block.h"
 #include "index.h"
 #include "mixed_limits.h"
+#include "compress.h"
 
 static int _index_workidx_grow(index_t *index, size_t limit);
 
@@ -60,6 +61,11 @@ int index_set_blksize(index_t *index, block_size_t blksize) {
 	index->blksize = blksize;
 	index->header.blksize = be32toh(blksize);
 	return 0;
+}
+
+
+void index_set_compression(index_t *index, int compression) {
+	index->header.compression = compression & 0xFF;
 }
 
 
@@ -132,6 +138,11 @@ int index_ondiskidx_add(index_t *index, int index_fd, int data_fd) {
 
 	if (memcmp(header->magic, MAGIC, strlen(MAGIC)+1)) {
 		fprintf(stderr, "invalid index magic\n");
+		goto err;
+	}
+
+	if ((header->compression != (COMPRESS_LZ4 & 0xFF)) && (header->compression != (COMPRESS_ZSTD & 0xFF))) {
+		fprintf(stderr, "unknown compression algorithm: %d\n", header->compression);
 		goto err;
 	}
 
