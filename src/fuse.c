@@ -1,5 +1,3 @@
-#define FUSE_USE_VERSION 30
-#include <fuse/fuse_lowlevel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -482,31 +480,36 @@ int fuse_main(index_t *index, inode_cache_t *inode_cache, ondiskidx_t *ondiskidx
 	fuse_global_state.block_cache = &block_cache;
 	fuse_global_state.dir_index = &dir_index;
 
+	#ifdef MULTITHREADED
+	struct fuse_loop_config loop_cfg = { .clone_fd=0, .max_idle_threads=4 };
+	#endif
 
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
-	struct fuse_chan *ch;
-	char *mountpoint;
+	struct fuse_cmdline_opts opts;
 	int err = -1;
-	if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 && (ch = fuse_mount(mountpoint, &args)) != NULL) {
-		struct fuse_session *se = fuse_lowlevel_new(&args, &bk_ll_oper, sizeof(bk_ll_oper), &fuse_global_state);
+
+	memset(&opts, 0, sizeof(struct fuse_cmdline_opts));
+
+	if (fuse_parse_cmdline(&args, &opts) != -1) {
+		struct fuse_session *se = fuse_session_new(&args, &bk_ll_oper, sizeof(bk_ll_oper), &fuse_global_state);
 		if (se != NULL) {
 			if (fuse_set_signal_handlers(se) != -1) {
-				fuse_session_add_chan(se, ch);
-#ifdef MULTITHREADED
-				err = fuse_session_loop_mt(se);
-#else
-				err = fuse_session_loop(se);
-#endif
+				if (fuse_session_mount(se, opts.mountpoint) != -1) {
+	#ifdef MULTITHREADED
+					err = fuse_session_loop_mt(se, &loop_cfg);
+	#else
+					err = fuse_session_loop(se);
+	#endif
+					fuse_session_unmount(se);
+				}
 				fuse_remove_signal_handlers(se);
-				fuse_session_remove_chan(ch);
 			}
 			fuse_session_destroy(se);
 		}
-		fuse_unmount(mountpoint, ch);
 	}
 	fuse_opt_free_args(&args);
-	if (mountpoint) {
-		free(mountpoint);
+	if (opts.mountpoint) {
+		free(opts.mountpoint);
 	}
 
 	fuse_global_state_free(&fuse_global_state);

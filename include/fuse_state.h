@@ -1,7 +1,8 @@
 #ifndef BK_FUSE_STATE_H
 #define BK_FUSE_STATE_H
 
-#include <fuse/fuse_lowlevel.h>
+#define FUSE_USE_VERSION 35
+#include <fuse3/fuse_lowlevel.h>
 
 #ifdef MULTITHREADED
 #include <pthread.h>
